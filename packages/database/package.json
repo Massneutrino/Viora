@@ -1,0 +1,36 @@
+{
+  "name": "@viora/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "generate": "prisma generate --env-file ../../.env",
+    "migrate": "prisma migrate dev --env-file ../../.env",
+    "seed": "dotenv -e ../../.env tsx prisma/seed.ts",
+    "studio": "prisma studio --env-file ../../.env",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"No lint configured yet\""
+  },
+  "dependencies": {
+    "@prisma/client": "^6.9.0"
+  },
+  "devDependencies": {
+    "@viora/tsconfig": "*",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.9.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

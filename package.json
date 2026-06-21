@@ -1,0 +1,28 @@
+{
+  "name": "viora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-native operating system for flexible and temporary work",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:generate": "npm run generate --workspace @viora/database",
+    "db:migrate": "npm run migrate --workspace @viora/database",
+    "db:seed": "npm run seed --workspace @viora/database",
+    "db:studio": "npm run studio --workspace @viora/database"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@11.9.0"
+}

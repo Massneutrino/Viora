@@ -1,0 +1,27 @@
+{
+  "name": "@viora/agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"No lint configured yet\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
+    "@viora/domain": "*"
+  },
+  "devDependencies": {
+    "@viora/tsconfig": "*",
+    "typescript": "^5.8.3"
+  }
+}

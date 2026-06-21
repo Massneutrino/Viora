@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Viora Worker",
+    "slug": "viora-worker",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "viora",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.viora.worker"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6366f1"
+      },
+      "package": "com.viora.worker"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

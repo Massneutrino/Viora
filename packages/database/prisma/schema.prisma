@@ -1,0 +1,433 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Sector {
+  education
+  security
+  care
+  hospitality
+  logistics
+  events
+}
+
+enum AutonomyLevel {
+  L0
+  L1
+  L2
+  L3
+  L4
+}
+
+enum EmployerRole {
+  organisation_admin
+  cover_manager
+  approver
+  finance_user
+  read_only_auditor
+}
+
+enum BookingRequestStatus {
+  draft
+  pending_confirmation
+  confirmed
+  broadcasting
+  filled
+  cancelled
+}
+
+enum OfferStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum BookingStatus {
+  confirmed
+  in_progress
+  completed
+  cancelled
+  at_risk
+}
+
+enum ShiftStatus {
+  scheduled
+  pre_shift_check
+  checked_in
+  checked_out
+  no_show
+  cancelled
+}
+
+enum ComplianceStatus {
+  pending
+  verified
+  expired
+  rejected
+}
+
+enum BroadcastStrategy {
+  simultaneous_top_n
+  sequential
+  preferred_first
+  known_worker_only
+  auto_book
+  manual_approval
+}
+
+enum ConversationChannel {
+  app
+  whatsapp
+  voice
+  phone
+  web
+}
+
+enum ActorType {
+  user
+  agent
+  system
+  admin
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+}
+
+model Organisation {
+  id                   String         @id @default(cuid())
+  name                 String
+  sector               Sector         @default(education)
+  type                 String
+  timezone             String         @default("Europe/London")
+  parentOrganisationId String?
+  parentOrganisation   Organisation?  @relation("OrgHierarchy", fields: [parentOrganisationId], references: [id])
+  childOrganisations   Organisation[] @relation("OrgHierarchy")
+  sites                Site[]
+  users                EmployerUser[]
+  bookingRequests      BookingRequest[]
+  bookings             Booking[]
+  invoices             Invoice[]
+  guardrailPolicy      GuardrailPolicy?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([sector])
+}
+
+model Site {
+  id               String           @id @default(cuid())
+  organisationId   String
+  organisation     Organisation     @relation(fields: [organisationId], references: [id])
+  name             String
+  address          String
+  latitude         Float?
+  longitude        Float?
+  siteInstructions String?
+  bookingRequests  BookingRequest[]
+  bookings         Booking[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([organisationId])
+}
+
+model EmployerUser {
+  id             String       @id @default(cuid())
+  organisationId String
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  email          String       @unique
+  name           String
+  role           EmployerRole
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organisationId])
+}
+
+model Worker {
+  id             String    @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String    @unique
+  phone          String?
+  homeLatitude   Float?
+  homeLongitude  Float?
+  workRadiusKm   Float?
+  roleTypes      String[]
+  passport       Passport?
+  offers         Offer[]
+  bookings       Booking[]
+  guardrailPolicy GuardrailPolicy?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Passport {
+  id                  String           @id @default(cuid())
+  workerId            String           @unique
+  worker              Worker           @relation(fields: [workerId], references: [id])
+  identityVerified    Boolean          @default(false)
+  rightToWorkStatus   ComplianceStatus @default(pending)
+  dbsStatus           ComplianceStatus @default(pending)
+  qtsStatus           ComplianceStatus?
+  siaStatus           ComplianceStatus?
+  safeguardingStatus  ComplianceStatus @default(pending)
+  sectorEligibility   Sector[]
+  reliabilityScore    Float?
+  documents           ComplianceDocument[]
+  updatedAt           DateTime         @updatedAt
+}
+
+model ComplianceDocument {
+  id           String           @id @default(cuid())
+  passportId   String
+  passport     Passport         @relation(fields: [passportId], references: [id])
+  documentType String
+  status       ComplianceStatus @default(pending)
+  expiresAt    DateTime?
+  storageKey   String?
+  verifiedBy   String?
+  verifiedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([passportId])
+}
+
+model GuardrailPolicy {
+  id                   String         @id @default(cuid())
+  organisationId       String?        @unique
+  organisation         Organisation?  @relation(fields: [organisationId], references: [id])
+  workerId             String?        @unique
+  worker               Worker?        @relation(fields: [workerId], references: [id])
+  autonomyLevel        AutonomyLevel  @default(L1)
+  budgetCeiling        Float?
+  payFloor             Float?
+  maxCommuteMinutes    Int?
+  approvedRoleTypes    String[]
+  workerWhitelist      String[]
+  workerBlocklist      String[]
+  autoAcceptConditions Json?
+  escalationContacts   String[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+}
+
+model BookingRequest {
+  id               String               @id @default(cuid())
+  organisationId   String
+  organisation     Organisation         @relation(fields: [organisationId], references: [id])
+  siteId           String
+  site             Site                 @relation(fields: [siteId], references: [id])
+  status           BookingRequestStatus @default(draft)
+  roleType         String
+  startAt          DateTime
+  endAt            DateTime
+  payRate          Float
+  maxPayRate       Float?
+  requirements     Json?
+  rawIntent        String?
+  channel          ConversationChannel  @default(web)
+  fillProbability  Float?
+  broadcastStrategy BroadcastStrategy   @default(sequential)
+  matches          Match[]
+  offers           Offer[]
+  booking          Booking?
+  conversations    Conversation[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([organisationId, status])
+  @@index([startAt])
+}
+
+model Match {
+  id                    String         @id @default(cuid())
+  bookingRequestId      String
+  bookingRequest        BookingRequest @relation(fields: [bookingRequestId], references: [id])
+  workerId              String
+  rank                  Int
+  acceptanceProbability Float
+  reasoning             String
+  scores                Json
+  offers                Offer[]
+  createdAt             DateTime       @default(now())
+
+  @@index([bookingRequestId])
+  @@index([workerId])
+}
+
+model Offer {
+  id               String         @id @default(cuid())
+  bookingRequestId String
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id])
+  workerId         String
+  worker           Worker         @relation(fields: [workerId], references: [id])
+  matchId          String?
+  match            Match?         @relation(fields: [matchId], references: [id])
+  status           OfferStatus    @default(pending)
+  payRate          Float
+  fitExplanation   String
+  expiresAt        DateTime
+  booking          Booking?
+  createdAt        DateTime       @default(now())
+
+  @@index([workerId, status])
+  @@index([bookingRequestId])
+}
+
+model Booking {
+  id                  String        @id @default(cuid())
+  bookingRequestId    String        @unique
+  bookingRequest      BookingRequest @relation(fields: [bookingRequestId], references: [id])
+  organisationId      String
+  organisation        Organisation  @relation(fields: [organisationId], references: [id])
+  siteId              String
+  site                Site          @relation(fields: [siteId], references: [id])
+  workerId            String
+  worker              Worker        @relation(fields: [workerId], references: [id])
+  offerId             String        @unique
+  offer               Offer         @relation(fields: [offerId], references: [id])
+  status              BookingStatus @default(confirmed)
+  roleType            String
+  startAt             DateTime
+  endAt               DateTime
+  payRate             Float
+  vioraFee            Float
+  totalCost           Float
+  backupWorkerIds     String[]
+  complianceSnapshot  Json
+  shift               Shift?
+  timesheet           Timesheet?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@index([organisationId, status])
+  @@index([workerId])
+}
+
+model Shift {
+  id               String      @id @default(cuid())
+  bookingId        String      @unique
+  booking          Booking     @relation(fields: [bookingId], references: [id])
+  status           ShiftStatus @default(scheduled)
+  checkedInAt      DateTime?
+  checkedOutAt     DateTime?
+  checkInLatitude  Float?
+  checkInLongitude Float?
+  feedback         Feedback[]
+  timesheet        Timesheet?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+model Timesheet {
+  id             String    @id @default(cuid())
+  shiftId        String    @unique
+  shift          Shift     @relation(fields: [shiftId], references: [id])
+  bookingId      String    @unique
+  booking        Booking   @relation(fields: [bookingId], references: [id])
+  workerId       String
+  organisationId String
+  hoursWorked    Float
+  approved       Boolean   @default(false)
+  approvedAt     DateTime?
+  approvedBy     String?
+  createdAt      DateTime  @default(now())
+
+  @@index([organisationId, approved])
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  organisationId  String
+  organisation    Organisation  @relation(fields: [organisationId], references: [id])
+  periodStart     DateTime
+  periodEnd       DateTime
+  workerPayTotal  Float
+  vioraFeeTotal   Float
+  totalAmount     Float
+  status          InvoiceStatus @default(draft)
+  createdAt       DateTime      @default(now())
+
+  @@index([organisationId])
+}
+
+model Conversation {
+  id                String              @id @default(cuid())
+  participantType   String
+  participantId     String
+  channel           ConversationChannel
+  bookingRequestId  String?
+  bookingRequest    BookingRequest?     @relation(fields: [bookingRequestId], references: [id])
+  intent            String?
+  extractedEntities Json?
+  messages          ConversationMessage[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([participantId])
+}
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           String
+  content        String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+}
+
+model AuditEvent {
+  id         String    @id @default(cuid())
+  actorType  ActorType
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  inputs     Json
+  outputs    Json
+  outcome    String
+  createdAt  DateTime  @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model NegotiationRecord {
+  id               String   @id @default(cuid())
+  bookingRequestId String
+  workerId         String
+  employerCeiling  Float
+  workerFloor      Float
+  agreedRate       Float?
+  explanation      String
+  createdAt        DateTime @default(now())
+
+  @@index([bookingRequestId])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id])
+  fromType  String
+  fromId    String
+  rating    Int?
+  comment   String?
+  contested Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([shiftId])
+}
