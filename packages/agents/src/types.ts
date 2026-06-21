@@ -21,6 +21,18 @@ export interface ParsedBookingIntent {
   confidence: number;
 }
 
+export interface VIntakeContext {
+  organisationId: string;
+  guardrails: {
+    autonomyLevel: AutonomyLevel;
+    budgetCeiling?: number;
+    payFloor?: number;
+    maxCommuteMinutes?: number;
+    approvedRoleTypes: string[];
+    escalationContacts: string[];
+  };
+}
+
 /** Result of any agent action — always auditable. */
 export interface AgentActionResult<T = unknown> {
   success: boolean;
@@ -33,7 +45,7 @@ export interface AgentActionResult<T = unknown> {
 /** V — user-facing omnichannel agent. */
 export interface VAgent {
   channel: ConversationChannel;
-  parseIntent(rawInput: string, context: { organisationId: string }): Promise<ParsedBookingIntent>;
+  parseIntent(rawInput: string, context: VIntakeContext): Promise<ParsedBookingIntent>;
   clarify(missingFields: string[], context: Record<string, unknown>): Promise<string>;
   confirmIntent(intent: ParsedBookingIntent): Promise<string>;
 }

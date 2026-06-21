@@ -12,8 +12,8 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Intake API route — `POST /v1/intake/parse` (`apps/api/src/routes/intake.ts`)
 - ✅ `vAgent` wired into API server — replaced `stubVAgent` in `apps/api/src/index.ts`
 - ✅ Persist confirmed intent → `BookingRequest` row in DB — status `pending_confirmation`, returns `bookingRequestId`
-- 🔲 Load org's `GuardrailPolicy` before calling V; pass constraints into intake context
-- 🔲 Write `Conversation` + `ConversationMessage` rows for each intake exchange
+- ✅ Load org's `GuardrailPolicy` before calling V; pass constraints into intake context
+- ✅ Write `Conversation` + `ConversationMessage` rows for each intake exchange
 
 ## Compliance Gates
 

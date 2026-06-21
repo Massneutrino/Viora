@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { VAgent, ParsedBookingIntent } from "./types.js";
+import type { VAgent, ParsedBookingIntent, VIntakeContext } from "./types.js";
 
 const MODEL = "claude-opus-4-8";
 
@@ -12,8 +12,16 @@ function getClient(): Anthropic {
 export const vAgent: VAgent = {
   channel: "web",
 
-  async parseIntent(rawInput: string, context: { organisationId: string }): Promise<ParsedBookingIntent> {
+  async parseIntent(rawInput: string, context: VIntakeContext): Promise<ParsedBookingIntent> {
     const client = getClient();
+    const guardrailSummary = [
+      `autonomyLevel: ${context.guardrails.autonomyLevel}`,
+      `budgetCeiling: ${context.guardrails.budgetCeiling ?? "not_set"}`,
+      `payFloor: ${context.guardrails.payFloor ?? "not_set"}`,
+      `maxCommuteMinutes: ${context.guardrails.maxCommuteMinutes ?? "not_set"}`,
+      `approvedRoleTypes: ${context.guardrails.approvedRoleTypes.join(", ") || "not_set"}`,
+      `escalationContacts: ${context.guardrails.escalationContacts.join(", ") || "not_set"}`,
+    ].join("\n");
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 2048,
@@ -21,9 +29,13 @@ export const vAgent: VAgent = {
       system: `You are V, the AI intake agent for Viora — an intelligent staffing platform for regulated sectors (schools, NHS, social care).
 Parse the employer's natural-language staffing request into structured data.
 Organisation ID in scope: ${context.organisationId}
+Employer guardrails in scope:
+${guardrailSummary}
 
 Rules:
 - roleType: normalise to snake_case (e.g. "supply_teacher", "teaching_assistant", "cover_supervisor", "TA")
+- if roleType is outside approvedRoleTypes, keep the parsed role but include "roleType" in missingFields for human clarification
+- if payRate is above budgetCeiling or below payFloor, keep the parsed rate but include "payRate" in missingFields for human clarification
 - startAt / endAt: infer from context; if the date is missing assume the next working day; default shift 08:30–15:30 UK time
 - missingFields: list every field that is absent or genuinely ambiguous (siteId, payRate, startAt, endAt, requirements)
 - confidence: 0.0–1.0 reflecting how clearly the request was stated`,

@@ -3,11 +3,12 @@ import cors from "@fastify/cors";
 import { PHASE_0 } from "@viora/domain";
 import {
   vAgent,
+  createTrustComplianceAgent,
   stubMarketAgent,
   stubOpsAgent,
-  stubTrustComplianceAgent,
   stubWorkerContextAgent,
 } from "@viora/agents";
+import type { TrustComplianceAgent } from "@viora/agents";
 import { prisma } from "@viora/database";
 import { healthRoutes } from "./routes/health.js";
 import { intakeRoutes } from "./routes/intake.js";
@@ -26,7 +27,7 @@ async function buildServer() {
     v: vAgent,
     worker: stubWorkerContextAgent,
     market: stubMarketAgent,
-    compliance: stubTrustComplianceAgent,
+    compliance: createTrustComplianceAgent(prisma),
     ops: stubOpsAgent,
   });
 
@@ -60,7 +61,7 @@ declare module "fastify" {
       v: typeof vAgent;
       worker: typeof stubWorkerContextAgent;
       market: typeof stubMarketAgent;
-      compliance: typeof stubTrustComplianceAgent;
+      compliance: TrustComplianceAgent;
       ops: typeof stubOpsAgent;
     };
     db: typeof prisma;
