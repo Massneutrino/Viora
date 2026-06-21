@@ -2,10 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { PHASE_0 } from "@viora/domain";
 import {
+  vAgent,
   stubMarketAgent,
   stubOpsAgent,
   stubTrustComplianceAgent,
-  stubVAgent,
   stubWorkerContextAgent,
 } from "@viora/agents";
 import { prisma } from "@viora/database";
@@ -23,7 +23,7 @@ async function buildServer() {
   await app.register(cors, { origin: true });
 
   app.decorate("agents", {
-    v: stubVAgent,
+    v: vAgent,
     worker: stubWorkerContextAgent,
     market: stubMarketAgent,
     compliance: stubTrustComplianceAgent,
@@ -57,7 +57,7 @@ buildServer()
 declare module "fastify" {
   interface FastifyInstance {
     agents: {
-      v: typeof stubVAgent;
+      v: typeof vAgent;
       worker: typeof stubWorkerContextAgent;
       market: typeof stubMarketAgent;
       compliance: typeof stubTrustComplianceAgent;

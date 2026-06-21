@@ -12,8 +12,8 @@ Education sector wedge — supply teachers, cover supervisors, TA/LSA, invigilat
 
 | Surface | Package | Port |
 |---------|---------|------|
-| Employer web app | `@viora/web` | 3000 |
-| Admin console | `@viora/admin` | 3001 |
+| Employer web app | `@viora/web` | 3100 |
+| Admin console | `@viora/admin` | 3101 |
 | Worker mobile app | `@viora/mobile` | Expo |
 | API | `@viora/api` | 4000 |
 
@@ -59,8 +59,8 @@ npm run dev
 ```
 
 Open:
-- Employer app: http://localhost:3000
-- Admin console: http://localhost:3001
+- Employer app: http://localhost:3100
+- Admin console: http://localhost:3101
 - API: http://localhost:4000
 
 For mobile: `npm run dev --workspace @viora/mobile` (requires Expo Go or simulator).

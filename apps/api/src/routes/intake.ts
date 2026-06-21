@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import type { Prisma } from "@viora/database";
 
 const parseIntentSchema = z.object({
   organisationId: z.string(),
@@ -15,13 +16,33 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       organisationId: body.organisationId,
     });
 
-    return reply.send({
-      intent,
-      clarificationNeeded: intent.missingFields.length > 0,
-      message:
-        intent.missingFields.length > 0
-          ? await app.agents.v.clarify(intent.missingFields, { organisationId: body.organisationId })
-          : await app.agents.v.confirmIntent(intent),
-    });
+    const clarificationNeeded = intent.missingFields.length > 0;
+    const message = clarificationNeeded
+      ? await app.agents.v.clarify(intent.missingFields, { organisationId: body.organisationId })
+      : await app.agents.v.confirmIntent(intent);
+
+    // Persist once all required DB fields are present — guard against V missing a field.
+    let bookingRequestId: string | undefined;
+    if (!clarificationNeeded && intent.siteId && intent.payRate !== undefined) {
+      const booking = await app.db.bookingRequest.create({
+        data: {
+          organisationId: body.organisationId,
+          siteId: intent.siteId,
+          roleType: intent.roleType,
+          startAt: intent.startAt,
+          endAt: intent.endAt,
+          payRate: intent.payRate,
+          maxPayRate: intent.maxPayRate,
+          requirements: intent.requirements as Prisma.InputJsonValue | undefined,
+          rawIntent: body.rawInput,
+          channel: body.channel,
+          status: "pending_confirmation",
+          broadcastStrategy: "sequential",
+        },
+      });
+      bookingRequestId = booking.id;
+    }
+
+    return reply.send({ intent, clarificationNeeded, message, bookingRequestId });
   });
 };
