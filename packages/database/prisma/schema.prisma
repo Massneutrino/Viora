@@ -192,6 +192,8 @@ model ComplianceDocument {
   passportId   String
   passport     Passport         @relation(fields: [passportId], references: [id])
   documentType String
+  fileName     String?
+  contentType  String?
   status       ComplianceStatus @default(pending)
   expiresAt    DateTime?
   storageKey   String?

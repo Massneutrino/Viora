@@ -1,6 +1,6 @@
-# Viora — Claude Code Quick Reference
+# Viora — Codex Quick Reference
 
-Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Claude Code.
+Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Codex.
 
 ## Critical Rules
 
@@ -17,8 +17,6 @@ Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Claude Cod
 
 **Phase 0 scope** lives in `packages/domain/src/phase0.ts`. Don't build outside it without flagging.
 
-**Shared UI** — the V identity (pixel-sphere) and the responsive `AppShell` live in `packages/ui` (`@viora/ui`), consumed by both web apps via `transpilePackages`. Put cross-app components there, not duplicated per app. The brand accent is the single `ACCENT` token in `PixelSphere.tsx`.
-
 ## Key Files
 
 | File | Purpose |
@@ -31,8 +29,6 @@ Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Claude Cod
 | `packages/domain/src/phase0.ts` | `PHASE_0_MUST_HAVE` — 17 MVP items |
 | `packages/domain/src/education.ts` | Deterministic compliance gates |
 | `packages/database/prisma/schema.prisma` | Full data model |
-| `packages/ui/src/components/PixelSphere.tsx` | V identity — 3D pixel-sphere (canvas), `ACCENT` brand token |
-| `packages/ui/src/components/AppShell.tsx` | Responsive shell — desktop side-rail / mobile bottom-nav + sphere hero |
 | `docs/TODO_PHASE0.md` | MVP engineering backlog (keep this current) |
 
 ## Ports

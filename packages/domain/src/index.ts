@@ -33,6 +33,33 @@ export type ShiftStatus =
 
 export type ComplianceStatus = "pending" | "verified" | "expired" | "rejected";
 
+export type DocumentType =
+  | "enhanced_dbs"
+  | "right_to_work"
+  | "safeguarding"
+  | "qts"
+  | "sia"
+  | "identity"
+  | "cv"
+  | "reference_letter"
+  | "references"
+  | "prohibition_check";
+
+export interface ComplianceDocument {
+  id: string;
+  passportId: string;
+  documentType: DocumentType | string;
+  fileName?: string;
+  contentType?: string;
+  status: ComplianceStatus;
+  expiresAt?: Date;
+  storageKey?: string;
+  verifiedBy?: string;
+  verifiedAt?: Date;
+  createdAt: Date;
+  downloadUrl?: string;
+}
+
 export type BroadcastStrategy =
   | "simultaneous_top_n"
   | "sequential"
@@ -255,3 +282,4 @@ export interface Feedback {
 
 export * from "./education.js";
 export * from "./phase0.js";
+export * from "./geo.js";

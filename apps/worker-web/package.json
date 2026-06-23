@@ -1,11 +1,11 @@
 {
-  "name": "@viora/web",
+  "name": "@viora/worker-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 6100 --hostname 0.0.0.0",
+    "dev": "next dev --port 6102 --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 6102",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

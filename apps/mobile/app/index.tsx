@@ -8,54 +8,91 @@ import {
   ActivityIndicator,
 } from "react-native";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:6200";
+const WORKER_ID = "demo-worker";
 
 interface ShiftOffer {
+  id: string;
   roleType: string;
   siteName: string;
   payRate: number;
-  travelMinutes: number;
+  travelMinutes?: number;
   fitExplanation: string;
+}
+
+function mapOfferFromApi(raw: Record<string, unknown>): ShiftOffer {
+  const bookingRequest = raw.bookingRequest as {
+    roleType?: string;
+    site?: { name?: string };
+  };
+  const fitExplanation = String(raw.fitExplanation ?? "This shift matches your profile.");
+  const kmMatch = fitExplanation.match(/(\d+(?:\.\d+)?)\s*km/i);
+  const travelMinutes = kmMatch ? Math.round(parseFloat(kmMatch[1]) / 0.5) : undefined;
+
+  return {
+    id: String(raw.id),
+    roleType: bookingRequest?.roleType ?? "Shift",
+    siteName: bookingRequest?.site?.name ?? "Site TBC",
+    payRate: Number(raw.payRate ?? 0),
+    travelMinutes,
+    fitExplanation,
+  };
 }
 
 export default function SwipeDeckScreen() {
   const [offer, setOffer] = useState<ShiftOffer | null>(null);
   const [loading, setLoading] = useState(false);
+  const [acting, setActing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   async function loadOffer() {
     setLoading(true);
     setMessage(null);
     try {
-      const res = await fetch(`${API_URL}/v1/workers/demo-worker/offer`);
+      const res = await fetch(`${API_URL}/v1/workers/${WORKER_ID}/offer`);
       const data = await res.json();
       if (data.data) {
-        setOffer(data.data);
+        setOffer(mapOfferFromApi(data.data));
       } else {
-        setOffer({
-          roleType: "Supply Teacher",
-          siteName: "Greenfield Primary",
-          payRate: 160,
-          travelMinutes: 22,
-          fitExplanation: data.explanation ?? "Demo offer — connect API for live shifts.",
-        });
+        setOffer(null);
+        setMessage(data.explanation ?? "No pending offers right now.");
       }
     } catch {
-      setOffer({
-        roleType: "Supply Teacher",
-        siteName: "Greenfield Primary",
-        payRate: 160,
-        travelMinutes: 22,
-        fitExplanation: "Demo mode — start API to load real offers.",
-      });
+      setOffer(null);
+      setMessage("Could not reach API — start the server and try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  function handleSwipe(direction: "accept" | "decline") {
-    setMessage(direction === "accept" ? "Shift accepted ✓" : "Passed");
-    setOffer(null);
+  async function handleSwipe(direction: "accept" | "decline") {
+    if (!offer || acting) return;
+
+    setActing(true);
+    setMessage(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/v1/workers/${WORKER_ID}/offers/${offer.id}/${direction}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data.error ?? data.explanation ?? `Could not ${direction} offer.`);
+        return;
+      }
+
+      setMessage(
+        direction === "accept"
+          ? (data.message ?? "Shift accepted ✓")
+          : (data.message ?? "Passed"),
+      );
+      setOffer(null);
+    } catch {
+      setMessage(`Network error — could not ${direction} offer.`);
+    } finally {
+      setActing(false);
+    }
   }
 
   return (
@@ -73,14 +110,24 @@ export default function SwipeDeckScreen() {
             <Text style={styles.role}>{offer.roleType}</Text>
             <Text style={styles.site}>{offer.siteName}</Text>
             <Text style={styles.pay}>£{offer.payRate}/day</Text>
-            <Text style={styles.meta}>{offer.travelMinutes} min travel</Text>
+            {offer.travelMinutes != null && (
+              <Text style={styles.meta}>{offer.travelMinutes} min travel</Text>
+            )}
             <Text style={styles.fit}>{offer.fitExplanation}</Text>
             <View style={styles.actions}>
-              <Pressable style={[styles.btn, styles.decline]} onPress={() => handleSwipe("decline")}>
-                <Text style={styles.btnText}>Pass</Text>
+              <Pressable
+                style={[styles.btn, styles.decline, acting && styles.btnDisabled]}
+                onPress={() => handleSwipe("decline")}
+                disabled={acting}
+              >
+                <Text style={styles.btnText}>{acting ? "…" : "Pass"}</Text>
               </Pressable>
-              <Pressable style={[styles.btn, styles.accept]} onPress={() => handleSwipe("accept")}>
-                <Text style={styles.btnText}>Accept</Text>
+              <Pressable
+                style={[styles.btn, styles.accept, acting && styles.btnDisabled]}
+                onPress={() => handleSwipe("accept")}
+                disabled={acting}
+              >
+                <Text style={styles.btnText}>{acting ? "…" : "Accept"}</Text>
               </Pressable>
             </View>
           </View>
@@ -91,7 +138,11 @@ export default function SwipeDeckScreen() {
         )}
       </View>
 
-      {message && <Text style={styles.message}>{message}</Text>}
+      {message && (
+        <Text style={[styles.message, message.includes("error") || message.includes("Could not") ? styles.messageError : null]}>
+          {message}
+        </Text>
+      )}
     </SafeAreaView>
   );
 }
@@ -116,6 +167,7 @@ const styles = StyleSheet.create({
   fit: { color: "#cbd5e1", marginTop: 16, lineHeight: 22 },
   actions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btn: { flex: 1, padding: 14, borderRadius: 10, alignItems: "center" },
+  btnDisabled: { opacity: 0.6 },
   decline: { backgroundColor: "#374151" },
   accept: { backgroundColor: "#6366f1" },
   btnText: { color: "#fff", fontWeight: "600" },
@@ -127,4 +179,5 @@ const styles = StyleSheet.create({
   },
   loadBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   message: { color: "#22c55e", textAlign: "center", padding: 16 },
+  messageError: { color: "#f87171" },
 });

@@ -12,10 +12,11 @@ Education sector wedge — supply teachers, cover supervisors, TA/LSA, invigilat
 
 | Surface | Package | Port |
 |---------|---------|------|
-| Employer web app | `@viora/web` | 3100 |
-| Admin console | `@viora/admin` | 3101 |
+| Employer web app | `@viora/web` | 6100 |
+| Admin console | `@viora/admin` | 6101 |
+| Worker web preview | `@viora/worker-web` | 6102 |
 | Worker mobile app | `@viora/mobile` | Expo |
-| API | `@viora/api` | 4000 |
+| API | `@viora/api` | 6200 |
 
 ## Monorepo structure
 
@@ -24,6 +25,7 @@ apps/
   api/       Fastify REST API + agent orchestration
   web/       Employer dashboard (Tell V intake)
   admin/     Internal ops console
+  worker-web/ Worker swipe deck (browser preview)
   mobile/    Worker swipe deck (Expo)
 packages/
   domain/    Shared types, Phase 0 scope, education compliance gates
@@ -59,9 +61,10 @@ npm run dev
 ```
 
 Open:
-- Employer app: http://localhost:3100
-- Admin console: http://localhost:3101
-- API: http://localhost:4000
+- Employer app: http://localhost:6100
+- Admin console: http://localhost:6101
+- Worker preview: http://localhost:6102
+- API: http://localhost:6200
 
 For mobile: `npm run dev --workspace @viora/mobile` (requires Expo Go or simulator).
 

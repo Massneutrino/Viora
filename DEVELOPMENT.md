@@ -8,14 +8,16 @@ AI-native staffing OS for regulated sectors. Phase 0 wedge: UK education (supply
 
 ```
 apps/
-  api/        Fastify REST API — port 4000
-  web/        Employer dashboard (Next.js) — port 3100
-  admin/      Ops console (Next.js) — port 3101
+  api/        Fastify REST API — port 6200
+  web/        Employer dashboard (Next.js) — port 6100
+  admin/      Ops console (Next.js) — port 6101
+  worker-web/ Worker swipe deck preview (Next.js) — port 6102
   mobile/     Worker swipe deck (Expo/React Native)
 packages/
   domain/     Shared TypeScript types, Phase 0 scope constants, education compliance gates
   database/   Prisma schema + PostgreSQL client singleton
   agents/     Agent interfaces, stubs, and LLM-backed implementations
+  ui/         Shared React UI — V pixel-sphere identity + responsive AppShell (web + worker-web)
   tsconfig/   Shared TypeScript configurations
 ```
 
@@ -36,9 +38,14 @@ npm run dev          # starts api, web, admin via Turbo
 - All Prisma scripts require `--env-file ../../.env` (already scripted in `packages/database/package.json`)
 
 **Environment**: copy `.env.example` → `.env` and fill in:
-- `ANTHROPIC_API_KEY` — required for the V intake agent
-- `DATABASE_URL` — already set for local dev
+- `DATABASE_URL` — already set for local dev (postgresql://viora:viora@localhost:5432/viora)
 - `JWT_SECRET` — any string for local dev
+- `AI_PROVIDER` — `anthropic` (default) or `google`
+- `ANTHROPIC_API_KEY` — required when `AI_PROVIDER=anthropic`
+- `GOOGLE_API_KEY` — required when `AI_PROVIDER=google`
+- `AI_MODEL` — optional; overrides the default model for the selected provider
+
+> **Always run `npm run dev` from the repo root.** Running `tsx watch src/index.ts` from inside `apps/api` skips the dotenv wrapper and leaves `DATABASE_URL` and the AI key unset. The API will exit immediately with a clear error if any required var is missing.
 
 ---
 
@@ -61,9 +68,10 @@ The agent layer lives in `packages/agents/`. Key rules:
 Use `isEligibleForEducationBooking()` from `packages/domain/src/education.ts`. Never ask an LLM to infer or estimate compliance eligibility — the gates are binary and legally required.
 
 **New LLM-backed agents:**
-- Model: `claude-opus-4-8`
-- Thinking: `{ type: "adaptive" }`
-- SDK: `@anthropic-ai/sdk` (already in `packages/agents`)
+- Import `createLLMClient` from `packages/agents/src/llm.ts`
+- Use `.complete({ system, prompt })` for text generation
+- Use `.structured<T>({ system, prompt, toolName, toolDescription, schema })` for forced structured output
+- Provider (`AI_PROVIDER`) and model (`AI_MODEL`) come from env — never hardcode a model name or import a provider SDK in agent files
 - Keep the stub in `stubs.ts` until the real agent is wired end-to-end and manually tested
 
 **Every agent action must be auditable.**

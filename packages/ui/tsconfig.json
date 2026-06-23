@@ -1,0 +1,7 @@
+{
+  "extends": "@viora/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"]
+}

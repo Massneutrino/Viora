@@ -30,6 +30,9 @@ Thumbs.db
 # Testing
 coverage/
 
+# Uploaded compliance documents (local storage)
+uploads/
+
 # Prisma
 packages/database/prisma/migrations/**/migration.sql.bak
 

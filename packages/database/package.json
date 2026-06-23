@@ -13,10 +13,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "generate": "prisma generate --env-file ../../.env",
-    "migrate": "prisma migrate dev --env-file ../../.env",
+    "generate": "dotenv -e ../../.env -- prisma generate",
+    "migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "seed": "dotenv -e ../../.env tsx prisma/seed.ts",
-    "studio": "prisma studio --env-file ../../.env",
+    "studio": "dotenv -e ../../.env -- prisma studio",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"No lint configured yet\""
   },
