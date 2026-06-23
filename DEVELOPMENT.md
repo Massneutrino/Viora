@@ -57,6 +57,8 @@ npm run dev          # starts api, web, admin via Turbo
 - **Prisma** for all DB access — no raw SQL
 - **No `console.log`** in production paths; use structured logging or omit
 - All new packages use `"type": "module"` in `package.json`
+- Line endings are normalized by `.gitattributes`: LF for repo text files, CRLF for Windows `.bat`/`.cmd` scripts
+- Local agent/editor state is ignored in `.gitignore`; keep shared instructions trackable (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`)
 
 ---
 
