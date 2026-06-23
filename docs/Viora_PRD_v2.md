@@ -104,6 +104,23 @@ Transparent economics. Employers see worker pay, Viora fee, and total cost. Work
 
 Scores inform, they do not gate. Worker reliability and reputation data improves matching. No worker is excluded from work based solely on an algorithmic score without a defined human review path.
 
+### 3.5 V Visual Identity and Character
+
+V's visual representation across all product surfaces is a **dual waveform** — two stacked audio waves, one representing the user (employer or worker), one representing V — that respond in real-time to voice amplitude. This design is chosen deliberately over the animated orb pattern (ChatGPT voice, ElevenLabs, Claude voice mode) for three reasons: it is more honest (it literally is audio, not a metaphor for it); it is visually differentiated from every major AI product; and the two-wave form carries the meaning of V working for both sides simultaneously.
+
+V has defined conversational states, each with a corresponding visual and audio cue:
+
+| State | Visual | When |
+| --- | --- | --- |
+| At-rest | Both waves slow ambient pulse, low amplitude | Waiting for input |
+| Listening | User wave active and responsive to mic input; V wave still | Employer or worker speaking |
+| Processing | V wave slow, oscillating at medium amplitude; user wave fades | V is working on a response |
+| Speaking | V wave full and responsive to TTS output amplitude | V is responding by voice |
+| Confirmed | Both waves briefly flash green, then settle to at-rest | Booking confirmed, action completed |
+| At-risk | V wave shifts to amber; subtle urgency pulse | A booking or compliance item needs attention |
+
+V's visual identity is consistent across web and mobile. On WhatsApp, V communicates through voice notes where appropriate (TTS audio files), not generic text messages. When V is waiting on a decision from an employer or worker, it calls rather than sending a silent notification. V has one voice, one name, and one promise — the visual identity reinforces this across every channel.
+
 ## 4. Target Users
 
 ### 4.1 Employer Personas
@@ -182,6 +199,10 @@ V processes the request, extracts the structured intent, asks only the questions
 - Self-healing replacement — if a booking becomes at risk, V reopens the shift, prioritises backup candidates, and notifies the employer with a replacement ETA
 - Post-shift feedback collection
 
+**Proactive V — V acts first, does not wait to be asked:**
+
+V does not wait for the employer to initiate. When a live booking is at risk, V calls the employer directly. When a shift is confirmed, V sends a WhatsApp voice note confirmation. When the system is waiting on information — a worker has not confirmed, a compliance document is expiring, a check-in has not arrived — V calls the relevant party rather than sending a silent notification. V's proactive outreach is bounded by the employer's GuardrailPolicy (channel preferences, quiet hours, escalation contacts). The default posture is: if it matters, V calls.
+
 ### 5.2 Worker Experience: The Swipe Deck
 
 Workers do not browse a job board. V surfaces the single best available opportunity as a card — role, location, pay, travel time, fit explanation, countdown to accept. The worker swipes right to take it or left to pass. One action, no forms.
@@ -207,6 +228,16 @@ V chat — ask anything about an assignment, a payment, a compliance requirement
 - Auto-accept repeat bookings at schools rated 4 stars or above
 - Never offer night shifts until availability is explicitly enabled
 
+**Pre-shift briefing — V prepares the worker before they arrive:**
+
+72–24 hours before each confirmed shift, V pushes a structured briefing to the worker. The briefing contains: the lesson plan or timetable for the day; class context (year group, behaviour profile, SEND considerations); practical information (who to report to, entry procedure, parking, site-specific safeguarding notes); and a summary of what previous supply workers said about working at this school.
+
+The school provides this information in one of two ways: via direct integration with their existing MIS (SIMS, Arbor, Bromcom — Phase 1), or by building a simple knowledge base on Viora through a V-guided setup conversation (Phase 0). Workers who arrive briefed perform measurably better, receive higher employer ratings, get re-requested more often, and build stronger fit graph entries. The briefing compounds Viora's matching advantage over time.
+
+**Worker profile and CV built through conversation:**
+
+Worker onboarding is a call with V — no forms. V asks about experience, qualifications, preferred roles, commute radius, availability, pay expectations, and working style through natural conversation and builds the structured profile automatically. References are requested by V and collected via a V-conducted call with the referee, transcribed and summarised into a verified reference record attached to the worker's Passport. Employers set their reference policy with V once ("two professional references, one from a headteacher"); V handles all future reference requests against that policy without manual intervention.
+
 ### 5.3 The Marketplace: Agent-to-Agent Matching
 
 Below the surface, every booking is a negotiation between two context agents — the employer-side instance of V and the worker-side instance of V — mediated by the Market Agent.
@@ -227,7 +258,7 @@ Every negotiation outcome is stored as an auditable object. Both sides see the r
 
 | Agent | Role and Responsibilities |
 | --- | --- |
-| **V (user-facing)** | Single branded voice for all employer and worker interactions across all channels. Omnichannel intake, confirmation, status, and support. |
+| **V (user-facing)** | Single branded voice for all employer and worker interactions across all channels. Omnichannel intake, confirmation, status, and support. Proactive outreach: V calls employer or worker when a decision is pending, a booking is at risk, or a compliance item needs action — it does not wait to be asked. V conducts worker onboarding calls and reference collection calls. V delivers booking confirmations and shift briefings as voice notes on WhatsApp. V's visual identity across all surfaces is the dual waveform (see §3.5). |
 | **Employer Context Agent** | Holds and works each open booking: parses intent, checks policy and compliance, produces ranked shortlists, manages broadcast strategy, monitors live bookings, triggers replacement. |
 | **Worker Context Agent** | Holds and works each worker's profile and pipeline: surfaces ranked opportunities, explains fit, learns preferences, manages compliance, supports auto-accept rules, tracks earnings and career progression. |
 | **Market Agent** | Clears supply and demand: real-time matching and ranking, acceptance probability modelling, fill probability forecasting, dynamic incentive recommendation, backup candidate management, market liquidity analysis. |
@@ -366,6 +397,20 @@ Repeat booking rate and employer re-request signals
 
 This intelligence compounds. A worker who has done 40 shifts across 12 schools in a MAT has a fit graph that makes them significantly easier to place — and their Passport more valuable — than a worker who just joined. The system rewards reliability, which improves supply-side quality for employers, which improves the product for everyone.
 
+### 7.10 Pre-shift Intelligence — The Briefed Worker Advantage
+
+The briefing V sends before a shift is a flagship differentiator no traditional agency and no first-generation digital staffing app provides. A supply teacher who arrives knowing the lesson plan, the class's behaviour context, the school's safeguarding lead name, and what previous supply workers found challenging at that school is materially better prepared than one who arrives cold. The information already exists inside the school — in their MIS, in the heads of their office staff — but no platform has ever surfaced it to the worker before arrival.
+
+This feature directly improves four metrics simultaneously: post-shift employer ratings (better-prepared workers perform better), repeat booking rates (workers who perform well get re-requested), worker confidence and satisfaction (less anxiety before an unfamiliar environment), and fit graph data quality (more accurate feedback when the worker had a fair chance to prepare). No competitor can replicate this without a deep MIS integration story — which Viora builds as a moat, not an afterthought.
+
+### 7.11 Proactive V — The Agent That Never Sleeps
+
+V is not a chatbot waiting for input. V monitors every open booking, every pending confirmation, every compliance expiry, and every worker who has gone quiet — and acts first.
+
+When something needs a decision, V calls. When a booking is confirmed, V sends a voice note. When a worker hasn't been seen in three weeks, V reaches out proactively to understand why and surface better-matched opportunities. When an employer's preferred worker is about to become unavailable, V flags it before the gap appears.
+
+This is the closest Viora gets to replacing a human account manager — not by mimicking one, but by operating at a scale and consistency no human can match. A traditional agency's account manager handles 30–50 workers. V handles every worker simultaneously, with full context, 24 hours a day. The result is a platform that feels genuinely attentive rather than transactional — which compounds into the trust and loyalty metrics that make a two-sided marketplace defensible.
+
 ## 8. Functional Requirements
 
 ### 8.1 Employer Onboarding
@@ -407,14 +452,22 @@ This intelligence compounds. A worker who has done 40 shifts across 12 schools i
 - **FR-S-004:** Post-shift feedback — employer and worker both receive a simple, fast feedback prompt. Results feed into the fit graph and Passport.
 - **FR-S-005:** Timesheet generation — auto-generated from check-in/out and booking data. Employer approval workflow.
 - **FR-S-006:** Dispute handling — workers and employers can flag timesheet or attendance discrepancies for human review.
-### 8.6 Payments and Invoicing
+### 8.6 Contracts and Agreements
+
+- **FR-CA-001:** Worker master engagement agreement — signed at onboarding via electronic signature. Valid under the Electronic Communications Act 2000; a simple e-sign with timestamped audit trail and identity verification is legally sufficient for this contract type. No qualified electronic signature (QES) required. Stored immutably with the worker record.
+- **FR-CA-002:** Per-placement confirmation — worker receives a placement-specific document (role, site, date, pay, terms) and confirms acceptance in-app or via WhatsApp reply. This confirmation constitutes the e-contract for the placement. Stored with the booking record and included in the audit log.
+- **FR-CA-003:** Employer master services agreement — signed once at employer onboarding. Per-booking, the employer's booking confirmation constitutes acceptance of placement terms. Employer can optionally require a signed placement confirmation per booking (configurable in GuardrailPolicy).
+- **FR-CA-004:** Contract event log — all contract-related events (document sent, viewed, signed, declined) are stored in the audit log with actor, timestamp, IP address, device fingerprint, and document version hash.
+- **FR-CA-005:** Legal review gate — employment status classification (employment agency vs. employment business vs. software platform) must be confirmed by specialist legal review before contracts are finalised and the platform goes live. Contract templates are subject to this review. See §9.7.
+
+### 8.7 Payments and Invoicing
 
 - **FR-P-001:** Invoice generation — auto-generated from approved timesheets. Employer can download, export to finance system, or receive by email.
 - **FR-P-002:** Payroll export — worker earnings exported in compatible format for payroll processing.
 - **FR-P-003:** Transparent cost breakdown — worker pay, Viora fee, and total cost visible on every booking and invoice.
 - **FR-P-004:** Spend reporting — by employer, site, role, worker, and period.
 - **FR-P-005:** Viora Pay (Phase 1) — earned wage access for workers. Subject to legal review, cost transparency requirements, and usage monitoring.
-### 8.7 Platform Administration
+### 8.8 Platform Administration
 
 - **FR-A-001:** Admin console — Viora internal team can manage employers, workers, bookings, compliance flags, disputes, fraud alerts, and market health.
 - **FR-A-002:** Ops Agent dashboard — unfilled shifts, fill probability alerts, worker supply gaps, anomalous patterns, and support queue.
@@ -505,21 +558,29 @@ Incident logging — workers can log concerns or incidents through V during a sh
 
 Voice anti-spoofing detection (Phase 1) — for voice channel intake, V monitors for anomalous patterns that may indicate account compromise or spoofing.
 
-### 9.6 Worker Reputation and Scoring — Principles
+### 9.6 Bidirectional Ratings and Fair Feedback
 
-Viora collects reliability, feedback, and attendance data to improve matching. The following principles govern how this data is used:
+Ratings are bidirectional: employers rate workers and workers rate employers after every completed shift. Both sides see their aggregate score and their full feedback history. The following design governs how ratings work.
 
-Transparency — workers can view all data held about them that feeds their reliability profile.
+**Positive ratings** are instant and frictionless. No minimum length or justification required. They feed directly into the fit graph and Passport immediately.
 
-Contestability — workers can dispute any feedback record or attendance event through a defined review process.
+**Negative ratings — worker** require a structured incident report before submission. The incident report captures: what happened, when, what the impact was, and any supporting evidence. Without a completed incident report, a negative rating cannot be submitted. Incident reports are triaged by severity:
 
-Proportionality — a single negative event does not exclude a worker from matching. Patterns over time, with context, inform recommendations.
+- *Safeguarding or serious:* Immediate human moderator review. Worker suspended from matching pending investigation outcome. School's Designated Safeguarding Lead (DSL) is notified. Stored permanently in the worker's Passport with outcome recorded.
+- *Moderate:* AI tracks pattern. No score impact until N incidents within M months (configurable per sector). Worker is notified and can respond within the platform.
+- *Minor:* Noted in the worker's record. Worker can see it. No automatic score impact. Repeated minor incidents over time may trigger human review, which the worker is notified of.
 
-Protected grounds exclusion — no data point that is a proxy for a protected characteristic under the Equality Act 2010 may feed into matching scores.
+**Negative ratings — employer** are subject to the same incident-report gate. Workers can flag a school for: unsafe or hostile environment, inaccurate role or location description, unprofessional conduct, inadequate safeguarding arrangements, or late/incorrect payment. Severe employer flags trigger immediate human review and may suspend the employer from autonomous matching pending investigation.
 
-Legitimate cancellation protection — cancellations due to illness, caring responsibilities, disability-related needs, or unsafe workplace conditions are flagged as protected and excluded from adverse scoring.
+**Protected events** — cancellations and incidents arising from illness, caring responsibilities, disability-related needs, or a genuinely unsafe workplace — are flagged as protected and excluded from adverse scoring. Workers declare the protection reason at the time of the event. The platform monitors for pattern abuse of the protected flag (repeated use on non-qualifying grounds), which is reviewed by a human moderator, not penalised automatically.
 
-Human review before exclusion — no worker is excluded from matching with an employer based solely on an algorithmic score. A defined human review step is required for any adverse outcome.
+**Contestability** — workers and employers can dispute any feedback record or attendance event through a defined review process. Disputed records are marked as pending and do not affect scores until the dispute is resolved.
+
+**Score transparency** — workers and employers can view every data point that feeds their respective scores, with plain-English explanations of how each contributes.
+
+**Protected grounds exclusion** — no data point that is a proxy for a protected characteristic under the Equality Act 2010 may feed into matching scores. Scoring inputs are reviewed regularly for potential indirect discrimination.
+
+**Human review before exclusion** — no worker is excluded from matching with an employer based solely on an algorithmic score. A defined human review step is required for any adverse outcome. The worker must be notified and given an opportunity to respond before the outcome is applied.
 
 ### 9.7 Legal and Regulatory Considerations
 
@@ -696,9 +757,15 @@ Worker auto-accept rules
 
 Employer memory and preference learning
 
-Post-shift feedback collection
+Post-shift feedback collection (with incident-report gate for negative ratings)
 
 Basic earnings tracker in worker app
+
+Pre-shift briefing (basic — V-composed briefing from school-provided knowledge base; no MIS API integration in Phase 0)
+
+Proactive V risk alerts — V calls employer if check-in is missed within the expected window; V calls worker if shift confirmation is still pending 12 hours before shift start
+
+Electronic placement confirmation — per-placement e-sign stored in audit log (subject to legal review sign-off before go-live)
 
 ### 12.4 Not Phase 0 — Staged Into Later Phases
 
@@ -727,8 +794,8 @@ L4 full autonomy (Phase 3)
 | Phase | Focus | Headline Outcome | Key Features |
 | --- | --- | --- | --- |
 | **Phase 0** (0–6 months) | Conversational MVP, education pilot | Prove employers talk to V instead of filling in a form; prove swipe deck outconverts list view; prove agentic matching reduces time-to-fill | V text/WhatsApp intake, booking engine, candidate ranking, worker feed, check-in/out, timesheets, invoices, admin console |
-| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, L3 autonomy, self-healing v2 |
-| **Phase 2** (18–30 months) | Viora Connect + Sector expansion | Agency supply integrated as on-ramp; true-cost-of-cover reporting as market standard; third vertical live | Viora Connect API, cross-sector utilisation engine, agency dashboard, true-cost benchmarking, additional vertical (care, hospitality, or events) |
+| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, L3 autonomy, self-healing v2, pre-shift MIS integration (SIMS / Arbor / Bromcom), bidirectional ratings with incident-report gate, employer knowledge base builder, worker onboarding via V call, reference collection via V call, calendar sync (Google / Outlook iCal), proactive V full rollout (calling, voice notes, WhatsApp) |
+| **Phase 2** (18–30 months) | Viora Connect + Sector expansion + Agentic intelligence | Agency supply integrated as on-ramp; true-cost-of-cover reporting as market standard; third vertical live; platform intelligence compounds | Viora Connect API, cross-sector utilisation engine, agency dashboard, true-cost benchmarking, additional vertical (care, hospitality, or events), demand forecasting (V predicts cover gaps from school absence patterns and pre-qualifies workers), term-block booking (season-length placements at reduced daily rate), AI-driven DBS Update Service monitoring with V-handled renewal conversations, training marketplace (V identifies skills gaps in worker pool and surfaces CPD), proactive worker retention (V outreach before workers go inactive) |
 | **Phase 3** (30+ months) | Full autonomy + Platform dominance | V trusted for L4 autonomous coordination; Viora positioned as the default infrastructure flexible work runs on | L4 autonomy, full marketplace liquidity, enterprise MAT and multi-site contracts, regulatory relationships, international expansion assessment |
 
 ## 14. Success Metrics

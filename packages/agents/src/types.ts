@@ -1,8 +1,7 @@
 import type {
   AutonomyLevel,
-  BookingRequest,
+  Booking,
   ConversationChannel,
-  GuardrailPolicy,
   Match,
   Offer,
 } from "@viora/domain";
@@ -23,6 +22,7 @@ export interface ParsedBookingIntent {
 
 export interface VIntakeContext {
   organisationId: string;
+  sites?: { id: string; name: string }[];
   guardrails: {
     autonomyLevel: AutonomyLevel;
     budgetCeiling?: number;
@@ -53,9 +53,10 @@ export interface VAgent {
 /** Employer Context Agent — works each open booking. */
 export interface EmployerContextAgent {
   processRequest(
-    intent: ParsedBookingIntent,
-    policy: GuardrailPolicy,
-  ): Promise<AgentActionResult<BookingRequest>>;
+    bookingRequestId: string,
+    offerId: string,
+    workerId: string,
+  ): Promise<AgentActionResult<Booking>>;
   monitorBooking(bookingId: string): Promise<AgentActionResult>;
   triggerReplacement(bookingId: string): Promise<AgentActionResult>;
 }

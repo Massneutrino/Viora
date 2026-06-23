@@ -27,8 +27,25 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# Agent/editor local state
+# Keep shared project instructions trackable: AGENTS.md, CLAUDE.md, .cursor/rules/, etc.
+.claude/settings.local.json
+.cursor/*.local.json
+.cursor/**/settings.local.json
+.cursor/cache/
+.cursor/index/
+.codex/*.local.json
+.codex/**/settings.local.json
+.codex/cache/
+.codex/logs/
+.codex/tmp/
+.codex-run/
+
 # Testing
 coverage/
+
+# Uploaded compliance documents (local storage)
+uploads/
 
 # Prisma
 packages/database/prisma/migrations/**/migration.sql.bak

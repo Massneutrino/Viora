@@ -11,6 +11,7 @@
   --accent-soft: #6e9bff;
   --success: #1f9d57;
   --warning: #e8920c;
+  --error: #e2574a;
 }
 
 * {
@@ -27,11 +28,12 @@ body {
   min-height: 100vh;
 }
 
-a {
-  color: var(--accent);
-}
-
 button {
   cursor: pointer;
   font: inherit;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
