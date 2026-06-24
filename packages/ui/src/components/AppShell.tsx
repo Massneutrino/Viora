@@ -108,7 +108,7 @@ export function AppShell({
           {navItems.map(n => (
             <button key={n.id} onClick={() => onNavChange(n.id)} title={n.label} style={{
               width: 60, borderRadius: 11, border: "none", padding: "8px 0",
-              background: activeNav === n.id ? "rgba(47,107,255,0.1)" : "transparent",
+              background: activeNav === n.id ? "rgba(31,77,255,0.1)" : "transparent",
               color: activeNav === n.id ? "var(--accent)" : "var(--muted)",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s",
             }}>

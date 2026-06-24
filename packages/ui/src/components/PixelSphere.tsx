@@ -5,10 +5,11 @@ import { useEffect, useRef } from "react"
 export type WaveState = "rest" | "listening" | "processing" | "speaking" | "confirmed" | "risk"
 
 // V identity: a sphere drawn from small squares. Active pixels morph between a
-// "V" glyph and a dual waveform. Colour appears only when V is active (cobalt),
-// switching to success/warning for confirmed/risk. Brand accent is the one knob.
+// "V" glyph and a dual waveform. At rest the mark is a darker engraving; colour
+// appears only when active (ultramarine), switching to success/warning for
+// confirmed/risk. Brand accent is the one knob.
 type RGB = readonly [number, number, number]
-const ACCENT: RGB = [47, 107, 255] // cobalt #2F6BFF — active tint
+const ACCENT: RGB = [31, 77, 255] // ultramarine #1F4DFF — active tint
 const SUCCESS: RGB = [31, 157, 87]
 const WARNING: RGB = [232, 146, 12]
 const SHADOW: RGB = [120, 126, 138] // chrome in shadow
@@ -97,7 +98,7 @@ export function PixelSphere({
       const ph = t * speed
 
       // Light orbits the sphere so the chrome glint travels around it (alive at rest).
-      let lx = Math.cos(t * 0.7) * 0.5, ly = Math.sin(t * 0.7) * 0.5, lz = 0.6
+      let lx = Math.cos(t * 0.7) * 0.42, ly = Math.sin(t * 0.7) * 0.42, lz = 0.6
       const ll = Math.hypot(lx, ly, lz); lx /= ll; ly /= ll; lz /= ll
       let hx = lx, hy = ly, hz = lz + 1
       const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl
@@ -117,22 +118,24 @@ export function PixelSphere({
       for (const dt of dots) {
         const a = Math.min(1, vMask(dt.nx, dt.ny) * (1 - morph) + waveMask(dt.nx, dt.ny, ph) * morph)
         const relief = a * (0.5 + active * 0.65) // V stays raised even at rest
+        const rest = a * (1 - active) // strength of the idle engraving
 
         // Chrome shading from the orbiting light.
         const diff = Math.max(0, dt.nx * lx + dt.ny * ly + dt.z * lz)
-        const spec = Math.pow(Math.max(0, dt.nx * hx + dt.ny * hy + dt.z * hz), 42)
+        const spec = Math.pow(Math.max(0, dt.nx * hx + dt.ny * hy + dt.z * hz), 70)
         const sh = 0.25 + 0.75 * diff
         let r = SHADOW[0] + (HI[0] - SHADOW[0]) * sh
         let g = SHADOW[1] + (HI[1] - SHADOW[1]) * sh
         let b = SHADOW[2] + (HI[2] - SHADOW[2]) * sh
 
-        // Raised pixels read brighter + glint stronger so the V is legible in mono.
-        const sp2 = spec * (0.5 + relief * 1.3) * 0.6
-        r += 255 * sp2 + relief * 18
-        g += 255 * sp2 + relief * 18
-        b += 255 * sp2 + relief * 20
+        // At rest the V/wave reads as a darker engraving (light-independent) so the
+        // mark holds as the glint orbits; raised pixels only brighten once active.
+        const sp2 = spec * (0.4 + relief * 1.1) * 0.4
+        r += 255 * sp2 - rest * 55 + active * relief * 18
+        g += 255 * sp2 - rest * 55 + active * relief * 18
+        b += 255 * sp2 - rest * 52 + active * relief * 20
 
-        // Cobalt (or success/warning) only when active.
+        // Ultramarine (or success/warning) only when active.
         const mix = a * active * 0.9
         r += (accent[0] - r) * mix
         g += (accent[1] - g) * mix

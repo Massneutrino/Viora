@@ -55,7 +55,7 @@ const STATUS_STYLE: Record<string, { bg: string; border: string; color: string }
   expired: { bg: "rgba(226,87,74,0.12)", border: "rgba(226,87,74,0.3)", color: "#d23b2b" },
   rejected: { bg: "rgba(226,87,74,0.12)", border: "rgba(226,87,74,0.3)", color: "#d23b2b" },
   missing: { bg: "rgba(138,143,152,0.12)", border: "rgba(138,143,152,0.3)", color: "#8a8f98" },
-  active: { bg: "rgba(47,107,255,0.12)", border: "rgba(47,107,255,0.3)", color: "#2f6bff" },
+  active: { bg: "rgba(31,77,255,0.12)", border: "rgba(31,77,255,0.3)", color: "#1f4dff" },
   incomplete: { bg: "rgba(232,146,12,0.12)", border: "rgba(232,146,12,0.3)", color: "#b9740a" },
 }
 
@@ -245,8 +245,8 @@ function PassportTab({ workerId, apiUrl }: { workerId: string; apiUrl: string })
             const isUploading = uploadingType === type
             return (
               <button key={type} onClick={() => pickFile(type)} disabled={!!uploadingType} style={{
-                background: isUploading ? "rgba(47,107,255,0.1)" : "var(--surface)",
-                border: `0.5px solid ${isUploading ? "rgba(47,107,255,0.4)" : "var(--border)"}`,
+                background: isUploading ? "rgba(31,77,255,0.1)" : "var(--surface)",
+                border: `0.5px solid ${isUploading ? "rgba(31,77,255,0.4)" : "var(--border)"}`,
                 color: isUploading ? "var(--accent)" : "var(--muted)",
                 fontSize: 11, padding: "6px 12px", borderRadius: 20,
                 opacity: uploadingType && !isUploading ? 0.5 : 1, transition: "all 0.15s",
@@ -391,14 +391,14 @@ export default function WorkerApp() {
                   )}
                   <span style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", color: "var(--muted)", fontSize: 10, padding: "3px 9px", borderRadius: 20 }}>★ 4.8 school</span>
                   {offer.hasBriefing && (
-                    <span style={{ background: "rgba(47,107,255,0.1)", border: "1px solid rgba(47,107,255,0.25)", color: "#2f5fd0", fontSize: 10, padding: "3px 9px", borderRadius: 20 }}>📚 Briefing ready</span>
+                    <span style={{ background: "rgba(31,77,255,0.1)", border: "1px solid rgba(31,77,255,0.25)", color: "#1a3fd0", fontSize: 10, padding: "3px 9px", borderRadius: 20 }}>📚 Briefing ready</span>
                   )}
                 </div>
 
                 {offer.fitReason && (
-                  <div style={{ background: "rgba(47,107,255,0.06)", border: "1px solid rgba(47,107,255,0.18)", borderRadius: 11, padding: "10px 12px", marginBottom: 14 }}>
+                  <div style={{ background: "rgba(31,77,255,0.06)", border: "1px solid rgba(31,77,255,0.18)", borderRadius: 11, padding: "10px 12px", marginBottom: 14 }}>
                     <p style={{ color: "var(--muted)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Why V chose this</p>
-                    <p style={{ color: "#2f5fd0", fontSize: 12, lineHeight: 1.5, margin: 0 }}>{offer.fitReason}</p>
+                    <p style={{ color: "#1a3fd0", fontSize: 12, lineHeight: 1.5, margin: 0 }}>{offer.fitReason}</p>
                   </div>
                 )}
 
