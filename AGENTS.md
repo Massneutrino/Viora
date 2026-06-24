@@ -39,6 +39,8 @@ Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Codex.
 | Employer web | 6100 |
 | Admin console | 6101 |
 | Worker web preview | 6102 |
+| Worker mobile Expo/Metro | 8100 |
+| Secondary Expo/Metro slot | 8101 |
 
 ## DB (local, no Docker)
 

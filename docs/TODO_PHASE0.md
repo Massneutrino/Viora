@@ -19,7 +19,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - New `@viora/ui` package — V pixel-sphere identity (3D chrome, V↔waveform morph, cobalt accent) + responsive `AppShell` (desktop side-rail / mobile bottom-nav, sphere hero, dot grid, Web/Phone preview toggle); both web apps adopt it. Light/cool-white theme.
 - Worker offer endpoint returns a flat UI DTO (role/site/payPerDay/travel/briefing) — `apps/api/src/routes/workers.ts`; demo `BookingRequest`+`Offer` seeded for `demo-worker` so the deck is populated out of the box.
 - Worker Passport tab: document/CV upload (base64) + compliance status — `apps/worker-web`; admin verify/reject UI — `apps/admin/src/app/compliance-queue.tsx`.
-- Local dev ports moved to the 6000s (API 6200, web 6100, admin 6101, worker 6102).
+- Local dev ports pinned (API 6200, web 6100, admin 6101, worker 6102, mobile Metro 8100).
 
 ---
 
@@ -65,7 +65,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 | Admin console | http://localhost:6101 | `@viora/admin` |
 | Worker preview (temp person) | http://localhost:6102 | `@viora/worker-web` |
 | API | http://localhost:6200 | `@viora/api` |
-| Worker mobile (Expo) | Metro :8081 — Expo Go / simulator | `@viora/mobile` |
+| Worker mobile (Expo) | Metro :8100 — Expo Go / simulator | `@viora/mobile` |
 
 **Worker offer flow:** seed worker `demo-worker` → employer intake on :6100 creates `BookingRequest` → broadcast offers (`POST /v1/bookings/:id/broadcast`) → load offer on :6102 or mobile. Without a pending offer, worker UI shows “No pending offers right now.”
 
@@ -133,4 +133,4 @@ Ask in chat: **"Review TODO changes"** — after editing this file or before a c
 
 The agent will: diff this file → trace each newly ✅/🔄 item to code → run `npm run typecheck` + `npm run build` → smoke-test the API → return verified / overstated / needs-review / suggested corrections.
 
-**Prereqs:** `npm run db:migrate && npm run db:seed`, then `npm run dev` (api :6200, employer :6100, admin :6101, worker preview :6102; API loads `.env`). If port 6200 shows DB disconnected, kill the old API process and restart.
+**Prereqs:** `npm run db:migrate && npm run db:seed`, then `npm run dev` (api :6200, employer :6100, admin :6101, worker preview :6102, mobile Metro :8100; API loads `.env`). If port 6200 shows DB disconnected, kill the old API process and restart.

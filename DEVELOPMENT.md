@@ -12,7 +12,7 @@ apps/
   web/        Employer dashboard (Next.js) — port 6100
   admin/      Ops console (Next.js) — port 6101
   worker-web/ Worker swipe deck preview (Next.js) — port 6102
-  mobile/     Worker swipe deck (Expo/React Native)
+  mobile/     Worker swipe deck (Expo/React Native) — Metro port 8100
 packages/
   domain/     Shared TypeScript types, Phase 0 scope constants, education compliance gates
   database/   Prisma schema + PostgreSQL client singleton
@@ -27,8 +27,16 @@ packages/
 
 ```bash
 npm install
-npm run dev          # starts api, web, admin via Turbo
+npm run dev          # starts dev workspaces via Turbo on pinned ports
 ```
+
+Local ports are pinned in workspace scripts:
+- API: 6200
+- Employer web: 6100
+- Admin console: 6101
+- Worker web preview: 6102
+- Worker mobile Expo/Metro: 8100 (`npm run dev:mobile`)
+- Secondary Expo/Metro slot: 8101 (`npm run dev:mobile:secondary`)
 
 **Database**: PostgreSQL running locally (no Docker required for local dev). The `docker-compose.yml` is available if you prefer containers.
 

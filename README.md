@@ -15,7 +15,7 @@ Education sector wedge — supply teachers, cover supervisors, TA/LSA, invigilat
 | Employer web app | `@viora/web` | 6100 |
 | Admin console | `@viora/admin` | 6101 |
 | Worker web preview | `@viora/worker-web` | 6102 |
-| Worker mobile app | `@viora/mobile` | Expo |
+| Worker mobile app | `@viora/mobile` | Expo / Metro 8100 |
 | API | `@viora/api` | 6200 |
 
 ## Monorepo structure
@@ -66,7 +66,7 @@ Open:
 - Worker preview: http://localhost:6102
 - API: http://localhost:6200
 
-For mobile: `npm run dev --workspace @viora/mobile` (requires Expo Go or simulator).
+For mobile: `npm run dev:mobile` starts Expo/Metro on port 8100. Use `npm run dev:mobile:secondary` for a second Expo/Metro process on port 8101.
 
 ## Agent architecture
 
