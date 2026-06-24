@@ -9,6 +9,12 @@
   ],
   "scripts": {
     "dev": "turbo dev",
+    "dev:api": "npm run dev --workspace @viora/api",
+    "dev:web": "npm run dev --workspace @viora/web",
+    "dev:admin": "npm run dev --workspace @viora/admin",
+    "dev:worker-web": "npm run dev --workspace @viora/worker-web",
+    "dev:mobile": "npm run dev --workspace @viora/mobile",
+    "dev:mobile:secondary": "npm run dev:secondary --workspace @viora/mobile",
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
