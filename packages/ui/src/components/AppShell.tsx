@@ -2,14 +2,15 @@
 
 import { useEffect, useState, type ReactNode } from "react"
 import { PixelSphere, type WaveState } from "./PixelSphere"
+import { PixelRings } from "./PixelRings"
 
 export type PreviewMode = "auto" | "web" | "phone"
 export type NavItem = { id: string; label: string; icon: ReactNode }
 
-// Subtle dot grid behind the hero/content — keeps the clean white, adds quiet structure.
-const DOT_GRID: React.CSSProperties = {
-  backgroundImage: "radial-gradient(circle, #e3e6ea 1px, transparent 1px)",
-  backgroundSize: "18px 18px",
+// Layer the content above the sonar-ring canvas backdrop.
+const OVER_RINGS: React.CSSProperties = {
+  position: "absolute", inset: 0, zIndex: 1,
+  display: "flex", flexDirection: "column", overflow: "hidden",
 }
 
 function Wordmark({ scale = 1 }: { scale?: number }) {
@@ -123,9 +124,12 @@ export function AppShell({
             <Wordmark />
             <OnlineDot />
           </header>
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", ...DOT_GRID, backgroundColor: "var(--bg)" }}>
-            <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={172} />
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
+          <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "var(--bg)" }}>
+            <PixelRings state={sphereState} centerY={112} innerRadius={78} />
+            <div style={OVER_RINGS}>
+              <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={172} />
+              <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
+            </div>
           </div>
           {footer && <div style={{ flexShrink: 0, background: "var(--surface)", borderTop: "0.5px solid var(--border)" }}>{footer}</div>}
         </div>
@@ -146,9 +150,12 @@ export function AppShell({
         </span>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", ...DOT_GRID, backgroundColor: "var(--bg)" }}>
-        <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={150} />
-        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
+      <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "var(--bg)" }}>
+        <PixelRings state={sphereState} centerY={101} innerRadius={68} />
+        <div style={OVER_RINGS}>
+          <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={150} />
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
+        </div>
       </div>
 
       {footer && <div style={{ flexShrink: 0, background: "var(--surface)" }}>{footer}</div>}

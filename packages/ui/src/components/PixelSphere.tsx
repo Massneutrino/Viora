@@ -9,7 +9,7 @@ export type WaveState = "rest" | "listening" | "processing" | "speaking" | "conf
 // appears only when active (ultramarine), switching to success/warning for
 // confirmed/risk. Brand accent is the one knob.
 type RGB = readonly [number, number, number]
-const ACCENT: RGB = [31, 77, 255] // ultramarine #1F4DFF — active tint
+export const ACCENT: RGB = [31, 77, 255] // ultramarine #1F4DFF — active tint
 const SUCCESS: RGB = [31, 157, 87]
 const WARNING: RGB = [232, 146, 12]
 const SHADOW: RGB = [120, 126, 138] // chrome in shadow
