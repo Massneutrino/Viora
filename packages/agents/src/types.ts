@@ -3,6 +3,10 @@ import type {
   Booking,
   ConversationChannel,
   Match,
+  MemoryEdge,
+  MemoryEntry,
+  MemoryOwnerType,
+  MemorySubjectType,
   Offer,
 } from "@viora/domain";
 
@@ -23,6 +27,9 @@ export interface ParsedBookingIntent {
 export interface VIntakeContext {
   organisationId: string;
   sites?: { id: string; name: string }[];
+  memory?: {
+    summary: string;
+  };
   guardrails: {
     autonomyLevel: AutonomyLevel;
     budgetCeiling?: number;
@@ -67,6 +74,33 @@ export interface WorkerContextAgent {
   explainFit(offerId: string): Promise<string>;
 }
 
+export interface MemoryEventInput {
+  ownerType: MemoryOwnerType;
+  ownerId: string;
+  subjectType: MemorySubjectType;
+  subjectId: string;
+  sourceRefType: string;
+  sourceRefId: string;
+  text: string;
+  data?: Record<string, unknown>;
+}
+
+export interface MemoryContext {
+  entries: MemoryEntry[];
+  edges: MemoryEdge[];
+  summary: string;
+}
+
+/** Memory Agent — writes and retrieves Viora Memory. */
+export interface MemoryAgent {
+  rememberFromEvent(input: MemoryEventInput): Promise<AgentActionResult<MemoryEntry[]>>;
+  recordOfferOutcome(offerId: string, outcome: "accepted" | "declined"): Promise<AgentActionResult>;
+  recordShiftEvent(shiftId: string, outcome: string): Promise<AgentActionResult>;
+  getOrganisationContext(organisationId: string, opts?: { siteId?: string }): Promise<MemoryContext>;
+  getWorkerContext(workerId: string, opts?: { includePrivate?: boolean }): Promise<MemoryContext>;
+  getOfferContext(offerId: string): Promise<MemoryContext>;
+}
+
 /** Market Agent — clears supply and demand. */
 export interface MarketAgent {
   rankCandidates(
@@ -90,8 +124,40 @@ export interface TrustComplianceAgent {
   }>;
 }
 
+/** A labelled count, e.g. one bucket of a status breakdown. */
+export interface OpsCount {
+  key: string;
+  count: number;
+}
+
+/** Aggregate ops dashboard metrics — all read-only, computed on demand. */
+export interface OpsStats {
+  workforce: {
+    totalWorkers: number;
+    avgReliability: number | null;
+    docsExpiringSoon: number;
+    complianceDocs: OpsCount[];
+  };
+  funnel: {
+    bookingRequests: OpsCount[];
+    bookings: OpsCount[];
+    offers: OpsCount[];
+  };
+  operations: {
+    shifts: OpsCount[];
+    auditOutcomes7d: OpsCount[];
+  };
+  financial: {
+    invoices: OpsCount[];
+    revenue: number;
+    workerPayTotal: number;
+    unapprovedTimesheets: number;
+  };
+}
+
 /** Ops Agent — internal team support. */
 export interface OpsAgent {
   getUnfilledShifts(): Promise<{ bookingRequestId: string; urgency: string }[]>;
   getMarketHealthSummary(): Promise<Record<string, unknown>>;
+  getOpsStats(): Promise<OpsStats>;
 }

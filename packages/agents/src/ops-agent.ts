@@ -1,5 +1,12 @@
 import type { PrismaClient } from "@viora/database";
-import type { OpsAgent } from "./types.js";
+import type { OpsAgent, OpsCount } from "./types.js";
+
+/** Map a Prisma `groupBy` result into a simple labelled-count array. */
+function toCounts<T extends Record<string, unknown>>(rows: T[], key: keyof T): OpsCount[] {
+  return rows
+    .map((row) => ({ key: String(row[key]), count: Number(row._count ?? 0) }))
+    .sort((a, b) => b.count - a.count);
+}
 
 export function createOpsAgent(db: PrismaClient): OpsAgent {
   return {
@@ -49,6 +56,68 @@ export function createOpsAgent(db: PrismaClient): OpsAgent {
         fillRate: totalRecent > 0 ? filledRecent / totalRecent : null,
         offerAcceptanceRate: resolvedOffers > 0 ? acceptedOffers / resolvedOffers : null,
         periodDays: 7,
+      };
+    },
+
+    async getOpsStats() {
+      const now = new Date();
+      const in30d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const [
+        totalWorkers,
+        reliability,
+        docsExpiringSoon,
+        complianceDocs,
+        bookingRequests,
+        bookings,
+        offers,
+        shifts,
+        auditOutcomes7d,
+        invoices,
+        invoiceTotals,
+        unapprovedTimesheets,
+      ] = await Promise.all([
+        db.worker.count(),
+        db.passport.aggregate({ _avg: { reliabilityScore: true } }),
+        db.complianceDocument.count({ where: { status: "verified", expiresAt: { lte: in30d } } }),
+        db.complianceDocument.groupBy({ by: ["status"], _count: true }),
+        db.bookingRequest.groupBy({ by: ["status"], _count: true }),
+        db.booking.groupBy({ by: ["status"], _count: true }),
+        db.offer.groupBy({ by: ["status"], _count: true }),
+        db.shift.groupBy({ by: ["status"], _count: true }),
+        db.auditEvent.groupBy({
+          by: ["outcome"],
+          _count: true,
+          where: { createdAt: { gte: sevenDaysAgo } },
+        }),
+        db.invoice.groupBy({ by: ["status"], _count: true }),
+        db.invoice.aggregate({ _sum: { vioraFeeTotal: true, workerPayTotal: true } }),
+        db.timesheet.count({ where: { approved: false } }),
+      ]);
+
+      return {
+        workforce: {
+          totalWorkers,
+          avgReliability: reliability._avg.reliabilityScore,
+          docsExpiringSoon,
+          complianceDocs: toCounts(complianceDocs, "status"),
+        },
+        funnel: {
+          bookingRequests: toCounts(bookingRequests, "status"),
+          bookings: toCounts(bookings, "status"),
+          offers: toCounts(offers, "status"),
+        },
+        operations: {
+          shifts: toCounts(shifts, "status"),
+          auditOutcomes7d: toCounts(auditOutcomes7d, "outcome"),
+        },
+        financial: {
+          invoices: toCounts(invoices, "status"),
+          revenue: invoiceTotals._sum.vioraFeeTotal ?? 0,
+          workerPayTotal: invoiceTotals._sum.workerPayTotal ?? 0,
+          unapprovedTimesheets,
+        },
       };
     },
   };
