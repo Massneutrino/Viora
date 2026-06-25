@@ -102,6 +102,54 @@ enum InvoiceStatus {
   paid
 }
 
+enum MemoryOwnerType {
+  organisation
+  worker
+}
+
+enum MemorySubjectType {
+  organisation
+  site
+  worker
+  role
+  booking_request
+  booking
+  shift
+  relationship
+}
+
+enum MemoryKind {
+  preference
+  instruction
+  pattern
+  risk
+  fit_signal
+  briefing_note
+  availability_signal
+  pay_signal
+  feedback_summary
+}
+
+enum MemorySourceType {
+  user_entered
+  agent_inferred
+  system_event
+  feedback
+}
+
+enum MemoryVisibility {
+  private
+  operational
+  shared
+}
+
+enum MemoryStatus {
+  pending_confirmation
+  active
+  archived
+  deleted
+}
+
 model Organisation {
   id                   String         @id @default(cuid())
   name                 String
@@ -221,6 +269,62 @@ model GuardrailPolicy {
   escalationContacts   String[]
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
+}
+
+model MemoryEntry {
+  id            String            @id @default(cuid())
+  ownerType     MemoryOwnerType
+  ownerId       String
+  subjectType   MemorySubjectType
+  subjectId     String
+  kind          MemoryKind
+  key           String
+  title         String
+  content       String
+  value         Json?
+  sourceType    MemorySourceType
+  sourceRefType String?
+  sourceRefId   String?
+  visibility    MemoryVisibility  @default(operational)
+  status        MemoryStatus      @default(pending_confirmation)
+  confidence    Float             @default(0.5)
+  confirmedAt   DateTime?
+  confirmedBy   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([ownerType, ownerId, status])
+  @@index([subjectType, subjectId])
+  @@index([key])
+  @@index([sourceRefType, sourceRefId])
+}
+
+model MemoryEdge {
+  id            String            @id @default(cuid())
+  ownerType     MemoryOwnerType
+  ownerId       String
+  fromType      MemorySubjectType
+  fromId        String
+  toType        MemorySubjectType
+  toId          String
+  kind          MemoryKind
+  label         String
+  weight        Float             @default(0)
+  confidence    Float             @default(0.5)
+  evidenceCount Int               @default(1)
+  sourceType    MemorySourceType
+  sourceRefType String?
+  sourceRefId   String?
+  visibility    MemoryVisibility  @default(operational)
+  status        MemoryStatus      @default(active)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([ownerType, ownerId, fromType, fromId, toType, toId, kind])
+  @@index([ownerType, ownerId, status])
+  @@index([fromType, fromId])
+  @@index([toType, toId])
+  @@index([kind])
 }
 
 model BookingRequest {
@@ -361,6 +465,26 @@ model Invoice {
   createdAt       DateTime      @default(now())
 
   @@index([organisationId])
+}
+
+model PilotLead {
+  id                  String   @id @default(cuid())
+  leadType            String
+  name                String
+  email               String
+  phone               String?
+  organisationName    String?
+  roleTitle           String?
+  postcode            String?
+  workerRoleTypes     String[]
+  complianceReadiness String?
+  notes               String?
+  status              String   @default("new")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
+
+  @@index([leadType, createdAt])
+  @@index([status, createdAt])
 }
 
 model Conversation {
