@@ -6,10 +6,12 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 **Last reviewed:** 2026-06-25
 
-**Remaining for Phase 0 close-out (4 items):** Guardrails enforcement (2) · WhatsApp channel (2)
+**Remaining for Phase 0 close-out (2 items):** WhatsApp channel (2)
 
 **Recent fixes (review follow-up):**
-- Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection, Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation, and admin visibility. Phase 0 remains Standard Rate by default.
+- Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection (employer web toggle — `apps/web/src/app/page.tsx`), Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation (mobile + worker-web), and admin ops **Dynamic Rate** panel (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`). Phase 0 remains Standard Rate by default.
+- Public site hero UX — tap the V orb to start voice conversation (no separate nav CTA); education wedge moved to eyebrow pill; audience cards stack vertically on narrow viewports (`apps/site/src/app/{page,v-conversation,globals.css}`).
+- Brand lockups — `PixelSphere` `staticMark` for header sizes + unified flat-V `icon.svg` favicons across site/web/worker-web/admin (`packages/ui`, `DEVELOPMENT.md` Frontend section).
 - Demo sandbox in admin console - deterministic scenarios for single-loop booking, all-avatar market day, compliance unlock and replacement recovery; API endpoints live under `/v1/admin/sandbox/*` and sandbox data is tagged with `[sandbox:<runId>]`
 - Mobile swipe deck calls accept/decline API — `apps/mobile/app/index.tsx`
 - Worker web preview for browser testing — `apps/worker-web` at http://localhost:6102 (same API flow as mobile; `demo-worker`)
@@ -31,13 +33,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - Identity is resolved via `?workerId=` / `?orgId=` (interim demo bypass; the auth-agent's session/switcher replaces switch-account/sign-out callbacks).
 
 **Conversational marketing site (this iteration):**
-- The public site (`apps/site`, port 6103) hero is now a **live V conversation**: tap/talk to the sphere and V runs a short directed intake (org vs worker → required details → callback/waitlist). Type **or** voice (Web Speech API, progressive enhancement); the manual forms remain as a one-tap fallback (`#book-pilot`).
+- The public site (`apps/site`, port 6103) hero is now a **live V conversation**: tap the V orb to start (voice or typed; Web Speech API with progressive enhancement). V runs a short directed intake (org vs worker → required details → callback/waitlist). Manual capture remains via the quick-form modal / `#book-pilot` fallback.
 - New endpoint `POST /v1/pilot/chat` — `createLLMClient().structured()` extracts fields + reply; **readiness/intent are computed deterministically server-side** (never LLM-decided), and a lead is only persisted on `readyToCapture && consent`. Reuses a shared `createPilotLead()` helper with `POST /v1/pilot/leads`; every capture writes an `AuditEvent` (`source: "chat"`). Degrades to the manual form if the LLM is unavailable.
 - GDPR: consent gate + `/privacy` notice + footer added; the sphere now drives `WaveState` from the conversation (rest→listening→processing→speaking→confirmed) instead of a blind timer. Removed the demo cards/timeline (and the broken `\2713` checkmark). `apps/site/src/app/{page,layout,v-conversation,privacy/page}.tsx`, `globals.css`, `routes/pilot.ts`.
 - ⚠️ **Scope flag:** this is a pilot-acquisition surface, outside the 17 `PHASE_0_MUST_HAVE` items — additive, not a core Phase 0 deliverable.
 
 **Voice-first site + waitlist→approval + Viora Memory (this iteration):**
-- Site hero is now **voice-first**: heading + an animated typewriter subheading (cycling real asks), V as the centerpiece, a **Speak with V** CTA that opens an inline voice conversation (speech-to-text in, `speechSynthesis` out, with a "Type instead" fallback and a typed-mode fallback when the browser lacks `SpeechRecognition`). `apps/site/src/app/{page,v-conversation}.tsx`.
+- Site hero is now **voice-first**: heading + animated typewriter subheading (cycling real asks), V orb as the centerpiece and **tap-to-talk trigger** (speech-to-text in, `speechSynthesis` out, with "Type instead" fallback and typed-mode when `SpeechRecognition` is unavailable). `apps/site/src/app/{page,v-conversation}.tsx`.
 - **Quick-form modal** (org/worker toggle) replaces the full-screen dual forms — `apps/site/src/app/quick-form.tsx`; opened from a quiet link / the conversation / the degraded path.
 - **Registration → waitlist**: `apps/site/src/app/register/page.tsx` (Sign-in target) posts to `/v1/pilot/leads`.
 - **Ops-dash approval mints accounts**: `POST /v1/admin/pilot/leads/:id/approve` (`apps/api/src/routes/admin.ts`) upserts the real `Organisation` (+Site+GuardrailPolicy+EmployerUser) or `Worker` (+Passport+GuardrailPolicy) with deterministic ids (idempotent), flips `PilotLead.status` to `approved`, writes an `AuditEvent`, and returns a `?orgId=`/`?workerId=` access link into the employer/worker app. Approve UI lives in the admin Pilot leads tab (`apps/admin/src/app/{sections,pilot-approve}.tsx`). Interim access until real auth lands.
@@ -52,11 +54,12 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## Intake & Booking
 
-- ✅ V natural language intake — `parseIntent`, `clarify`, `confirmIntent` (Anthropic claude-opus-4-8)
+- ✅ V natural language intake — `parseIntent`, `clarify`, `confirmIntent` via `createLLMClient()` (`AI_PROVIDER` / `AI_MODEL` env)
 - ✅ Intake API route — `POST /v1/intake/parse` (`apps/api/src/routes/intake.ts`)
 - ✅ `vAgent` wired into API server — replaced `stubVAgent` in `apps/api/src/index.ts`
 - ✅ Persist confirmed intent → `BookingRequest` row in DB — status `pending_confirmation`, returns `bookingRequestId`
 - ✅ Load org's `GuardrailPolicy` before calling V; pass constraints into intake context
+- ✅ Employer intake: Standard vs Dynamic `rateMode` toggle on web (`apps/web/src/app/page.tsx`); Dynamic requires `maxPayRate` before confirm (`apps/api/src/routes/intake.ts`)
 - ✅ Write `Conversation` + `ConversationMessage` rows for each intake exchange
 
 ## Compliance Gates
@@ -76,12 +79,12 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Replace `stubMarketAgent.rankCandidates()` — score workers by commute radius, role match, `Passport` status, reliability score (`packages/agents/src/market-agent.ts`)
 - ✅ Replace `stubMarketAgent.broadcastOffers()` — write `Offer` rows per strategy + autonomy level; `POST /v1/bookings/:id/broadcast` triggers it (`packages/agents/src/market-agent.ts`)
 - ✅ Replace `stubMarketAgent.estimateFillProbability()` — heuristic: eligible pool size × historical acceptance rate (`packages/agents/src/market-agent.ts`)
-- 🔄 Dynamic Rate foundation — schema/API/agent support exists for Phase 1 L3 clearing, but Phase 0 remains Standard Rate; full rollout waits on guardrail queues and approval UX.
+- 🔄 Dynamic Rate foundation — `RateMode` on `BookingRequest`, L3 clearing in Market Agent, `NegotiationRecord` + `dynamic_rate.clear` audit rows, worker rate explanation on offers; Phase 0 remains Standard Rate by default; full rollout waits on generic guardrail approval queue UX.
 
 ## Worker Feed
 
 - ✅ Replace `stubWorkerContextAgent.surfaceNextOffer()` — query best-ranked open `Offer` for the worker (`packages/agents/src/worker-context-agent.ts`)
-- ✅ Replace `stubWorkerContextAgent.explainFit()` — claude-opus-4-8 with adaptive thinking; caches in `offer.fitExplanation` (`packages/agents/src/worker-context-agent.ts`); **not** auto-invoked on `GET /offer` — worker UIs show broadcast template until `explainFit(offerId)` is called
+- ✅ Replace `stubWorkerContextAgent.explainFit()` — LLM via `createLLMClient()`; caches in `offer.fitExplanation` (`packages/agents/src/worker-context-agent.ts`); **not** auto-invoked on `GET /offer` — worker UIs show broadcast template until `explainFit(offerId)` is called
 - ✅ Confirm mobile swipe accept/decline writes `Offer.status` to DB end-to-end — `apps/mobile/app/index.tsx` → `POST /v1/workers/:id/offers/:offerId/accept|decline`; accept declines competing offers atomically
 - ✅ Worker web preview (browser swipe deck) — `apps/worker-web` at http://localhost:6102; `npm run dev` starts it with api/web/admin; same `demo-worker` offer load + accept/decline API as mobile
 
@@ -120,13 +123,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## Guardrails
 
-- 🔲 Enforce `GuardrailPolicy` (autonomyLevel, budgetCeiling, payFloor, approvedRoleTypes) before every autonomous agent action
-- 🔲 When `requiresHumanApproval: true`, queue action to admin console rather than auto-proceeding
-- 🔄 Dynamic Rate guardrails — Market Agent blocks Dynamic Rate below L3, without `maxPayRate`, without worker pay floors, or when floors exceed the employer ceiling; full generic action queue remains TODO.
+- ✅ Backend guardrail enforcement — shared `evaluateGuardrailAction()` checks `autonomyLevel`, `budgetCeiling`, `payFloor`, and `approvedRoleTypes` before autonomous broadcast, assignment, replacement, and Dynamic Rate clearing.
+- ✅ Human approval queue API — `PendingApproval` persists queued actions; `GET /v1/admin/approvals`, `POST /v1/admin/approvals/:id/approve`, and `/reject` are API-only (no admin UI yet). Queued broadcast/assignment/replacement paths write `AuditEvent` rows with `outcome: "queued_for_approval"` and do not mutate booking/offer state before approval.
+- 🔄 Dynamic Rate guardrails — Market Agent blocks Dynamic Rate below L3 into the approval queue and hard-blocks missing `maxPayRate`, missing worker pay floors, or floors above the employer ceiling. Full admin UI remains post-MVP polish.
 
 ## Audit Logging
 
-- 🔄 Write `AuditEvent` rows in all agent action paths — covered: intake, compliance upload/verify/reject, offer accept/decline, check-in/out, admin bookings, timesheets, invoice generate, worker profile update, organisation profile/guardrail update; **gaps:** invoice CSV export (`GET /v1/admin/invoices/:id/export`) and `estimateFillProbability()` (updates `BookingRequest` with no audit row)
+- ✅ Write `AuditEvent` rows in all agent action paths — covered: intake (+ `memory.influence`), compliance upload/verify/reject, market rank/broadcast/fill-probability (`ranking.complete`, `offers.broadcast`, `dynamic_rate.clear`, `fill_probability.estimate`), queued/approved/rejected human approvals, offer accept/decline, check-in/out, booking lifecycle, replacement, memory CRUD/import/review, pilot chat/leads + approval mint, sandbox runs, admin bookings/timesheets/invoice generate/export, worker/org profile + guardrail update
 - ✅ Wire admin audit log panel to live `GET /v1/admin/audit`
 
 ## Human Override
@@ -142,6 +145,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Demo sandbox panel - run/reset deterministic end-to-end scenarios and inspect timeline, entity counts and avatar coverage (`apps/admin/src/app/sandbox-panel.tsx`, `apps/api/src/routes/sandbox.ts`)
 - ✅ Memory lab + review panels — create/edit/forget demo memories and confirm `pending_confirmation` entries (`apps/admin/src/app/{memory-lab,memory-review}.tsx`, `GET /v1/admin/memory/pending`)
 - ✅ Pilot leads tab — list waitlist leads and **Approve & mint** into real org/worker accounts (`apps/admin/src/app/pilot-approve.tsx`, `POST /v1/admin/pilot/leads/:id/approve`)
+- ✅ Dynamic Rate panel on ops dash — recent `NegotiationRecord` rows with floor/ceiling/rate (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`)
 - 🔄 Admin mutation UI — compliance verify/reject now interactive (✅); approve timesheets, broadcast, and assign/cancel still API-only (post-MVP polish)
 
 ## WhatsApp Channel

@@ -101,6 +101,12 @@ enum ActorType {
   admin
 }
 
+enum PendingApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
 enum InvoiceStatus {
   draft
   sent
@@ -192,6 +198,7 @@ model Organisation {
   bookings             Booking[]
   invoices             Invoice[]
   guardrailPolicy      GuardrailPolicy?
+  pendingApprovals     PendingApproval[]
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -566,6 +573,26 @@ model AuditEvent {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+model PendingApproval {
+  id             String                @id @default(cuid())
+  organisationId String
+  organisation   Organisation          @relation(fields: [organisationId], references: [id])
+  actorType      ActorType
+  actorId        String
+  action         String
+  entityType     String
+  entityId       String
+  inputs         Json
+  explanation    String
+  status         PendingApprovalStatus @default(pending)
+  createdAt      DateTime              @default(now())
+  resolvedAt     DateTime?
+  resolvedBy     String?
+
+  @@index([organisationId, status, createdAt])
+  @@index([entityType, entityId])
 }
 
 model NegotiationRecord {

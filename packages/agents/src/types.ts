@@ -53,6 +53,10 @@ export interface AgentActionResult<T = unknown> {
   auditPayload: Record<string, unknown>;
 }
 
+export interface ApprovedActionOptions {
+  approvedBy?: string;
+}
+
 /** V — user-facing omnichannel agent. */
 export interface VAgent {
   channel: ConversationChannel;
@@ -67,9 +71,10 @@ export interface EmployerContextAgent {
     bookingRequestId: string,
     offerId: string,
     workerId: string,
+    options?: ApprovedActionOptions,
   ): Promise<AgentActionResult<Booking>>;
   monitorBooking(bookingId: string): Promise<AgentActionResult>;
-  triggerReplacement(bookingId: string): Promise<AgentActionResult>;
+  triggerReplacement(bookingId: string, options?: ApprovedActionOptions): Promise<AgentActionResult>;
 }
 
 /** Worker Context Agent — surfaces ranked opportunities. */
@@ -149,6 +154,7 @@ export interface MarketAgent {
     bookingRequestId: string,
     strategy: string,
     autonomyLevel: AutonomyLevel,
+    options?: ApprovedActionOptions,
   ): Promise<AgentActionResult<Offer[]>>;
 }
 

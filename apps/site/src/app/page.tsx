@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PixelRings, PixelSphere, Wordmark, type WaveState } from "@viora/ui";
 import { VConversation, type VConversationHandle } from "./v-conversation";
 import { QuickFormModal } from "./quick-form";
-import { MemoryDemo } from "./memory-demo";
+import { WhatsDifferent } from "./whats-different";
 
 const EXAMPLES = [
   "I need cover for tomorrow, 8:30–3:30",
@@ -172,7 +172,7 @@ export default function PilotPage() {
         <nav aria-label="Site navigation">
           <a href="#organisations">For organisations</a>
           <a href="#workers">For workers</a>
-          <a href="#memory">Memory</a>
+          <a href="#memory">Why Viora</a>
           <a className="sign-in" href="/register">
             Sign in
           </a>
@@ -233,7 +233,7 @@ export default function PilotPage() {
         </div>
       </section>
 
-      <MemoryDemo />
+      <WhatsDifferent />
 
       <footer className="site-footer">
         <div className="footer-brand">

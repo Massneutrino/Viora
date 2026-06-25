@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@viora/database";
+import { evaluateGuardrailAction } from "./guardrails.js";
 import type { EmployerContextAgent, MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
 
 const VIORA_FEE_RATE = 0.15;
@@ -37,7 +38,7 @@ export function createEmployerContextAgent(
   }
 
   return {
-    async processRequest(bookingRequestId, offerId, workerId) {
+    async processRequest(bookingRequestId, offerId, workerId, options) {
       const offer = await db.offer.findUnique({
         where: { id: offerId },
         include: {
@@ -125,38 +126,31 @@ export function createEmployerContextAgent(
         };
       }
 
-      const policy = bookingRequest.organisation.guardrailPolicy;
-      if (!policy) {
-        const explanation = "GuardrailPolicy missing for organisation.";
-        await auditFailure("booking.create", "BookingRequest", bookingRequestId, inputs, explanation);
-        return {
-          success: false,
-          explanation,
-          requiresHumanApproval: true,
-          auditPayload: { bookingRequestId, offerId, workerId, error: "missing_guardrails" },
-        };
-      }
+      const guardrail = await evaluateGuardrailAction(db, {
+        organisationId: bookingRequest.organisationId,
+        action: "assign",
+        roleType: bookingRequest.roleType,
+        payRate: offer.payRate,
+        approvedBy: options?.approvedBy,
+      });
 
-      const approvedRoleTypes = policy.approvedRoleTypes;
-      const roleAllowed =
-        approvedRoleTypes.length === 0 || approvedRoleTypes.includes(bookingRequest.roleType);
-      const payWithinBudget =
-        (policy.budgetCeiling == null || offer.payRate <= policy.budgetCeiling) &&
-        (policy.payFloor == null || offer.payRate >= policy.payFloor);
-
-      if (!roleAllowed || !payWithinBudget) {
-        const explanation = "Booking request exceeds organisation guardrails.";
-        await auditFailure("booking.create", "BookingRequest", bookingRequestId, inputs, explanation);
+      if (!guardrail.allowed || guardrail.requiresHumanApproval) {
+        const explanation = guardrail.reason;
         return {
           success: false,
           explanation,
           requiresHumanApproval: true,
           auditPayload: {
+            queueAction: "booking.create",
+            organisationId: bookingRequest.organisationId,
             bookingRequestId,
             offerId,
             workerId,
-            roleAllowed,
-            payWithinBudget,
+            guardrail: {
+              allowed: guardrail.allowed,
+              requiresHumanApproval: guardrail.requiresHumanApproval,
+              reason: guardrail.reason,
+            },
           },
         };
       }
@@ -367,7 +361,7 @@ export function createEmployerContextAgent(
       };
     },
 
-    async triggerReplacement(bookingId) {
+    async triggerReplacement(bookingId, options) {
       const booking = await db.booking.findUnique({
         where: { id: bookingId },
         include: {
@@ -401,14 +395,30 @@ export function createEmployerContextAgent(
       }
 
       const policy = booking.bookingRequest.organisation.guardrailPolicy;
-      if (!policy) {
-        const explanation = "GuardrailPolicy missing for organisation.";
-        await auditFailure("replacement.trigger", "Booking", bookingId, inputs, explanation);
+      const guardrail = await evaluateGuardrailAction(db, {
+        organisationId: booking.organisationId,
+        action: "replacement",
+        roleType: booking.roleType,
+        payRate: booking.payRate,
+        approvedBy: options?.approvedBy,
+      });
+      if (!guardrail.allowed || guardrail.requiresHumanApproval) {
+        const explanation = guardrail.reason;
         return {
           success: false,
           explanation,
           requiresHumanApproval: true,
-          auditPayload: { bookingId, error: "missing_guardrails" },
+          auditPayload: {
+            queueAction: "replacement.trigger",
+            organisationId: booking.organisationId,
+            bookingId,
+            bookingRequestId: booking.bookingRequestId,
+            guardrail: {
+              allowed: guardrail.allowed,
+              requiresHumanApproval: guardrail.requiresHumanApproval,
+              reason: guardrail.reason,
+            },
+          },
         };
       }
 
@@ -480,7 +490,8 @@ export function createEmployerContextAgent(
         const offers = await market.broadcastOffers(
           booking.bookingRequestId,
           booking.bookingRequest.broadcastStrategy,
-          policy.autonomyLevel,
+          policy?.autonomyLevel ?? "L4",
+          options,
         );
         offerCount = offers.data?.length ?? 0;
 

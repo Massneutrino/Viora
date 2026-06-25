@@ -785,143 +785,257 @@ h2 {
   line-height: 1.55;
 }
 
-.memory-toggle {
-  display: inline-flex;
-  gap: 4px;
-  background: #eef0f3;
-  padding: 4px;
-  border-radius: 999px;
-  margin: 1.6rem 0 1.3rem;
+/* What makes Viora different — three scrolling both-sides cards */
+@property --wd-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
 }
 
-.memory-toggle button {
-  border: none;
-  background: none;
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: #586470;
-}
-
-.memory-toggle button.on {
-  background: #fff;
-  color: var(--ink);
-  box-shadow: 0 2px 8px rgba(16, 20, 27, 0.08);
-}
-
-.memory-grid {
+.wd-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
-  gap: 1rem;
-  min-height: 12rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.05rem;
+  margin-top: 1.6rem;
 }
 
-.md-card {
+.wd-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  border: 0.5px solid #dde2e7;
-  border-radius: 0.85rem;
+  gap: 0.55rem;
+  border: 0.5px solid #e6e9ed;
+  border-radius: 14px;
   background: #fff;
-  padding: 1.1rem 1.15rem;
+  padding: 1rem 1.05rem;
+  transition: box-shadow 0.35s ease;
 }
 
-.md-card-top {
+/* A bright chrome glint orbits the border at rest — echoes the V orb's
+   travelling glint (PixelSphere HI tone), deliberately not ultramarine. */
+.wd-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 1.3px;
+  background: conic-gradient(
+    from var(--wd-ang),
+    transparent 0deg 296deg,
+    rgba(208, 220, 255, 0.55) 322deg,
+    #ffffff 344deg,
+    rgba(246, 249, 255, 0.95) 352deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: wd-orbit 7s linear infinite;
+  pointer-events: none;
+}
+
+.wd-card:nth-child(2)::before {
+  animation-delay: -2.3s;
+}
+
+.wd-card:nth-child(3)::before {
+  animation-delay: -4.6s;
+}
+
+@keyframes wd-orbit {
+  to {
+    --wd-ang: 360deg;
+  }
+}
+
+/* On hover the glint settles to a soft even glow and the examples scroll. */
+.wd-card:hover {
+  box-shadow: 0 0 22px rgba(188, 205, 255, 0.32);
+}
+
+.wd-card:hover::before {
+  background: conic-gradient(
+    from 0deg,
+    rgba(214, 224, 255, 0.5),
+    rgba(255, 255, 255, 0.72),
+    rgba(214, 224, 255, 0.5),
+    rgba(255, 255, 255, 0.72),
+    rgba(214, 224, 255, 0.5)
+  );
+  animation: none;
+}
+
+.wd-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.wd-pi {
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: none;
+  border: 0.5px solid #d9dfe5;
+  border-radius: 999px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.wd-pi svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.wd-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.wd-agents {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.58rem;
+}
+
+.wd-agents svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: #8a8f98;
+}
+
+.wd-chip {
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #3b46b7;
+  background: #eef1ff;
+  border: 0.5px solid #cfd6ff;
+  border-radius: 5px;
+  padding: 0.1rem 0.35rem;
+  white-space: nowrap;
+}
+
+.wd-view {
+  position: relative;
+  height: 6.5rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 16%, #000 84%, transparent);
+}
+
+.wd-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  animation: wd-scroll 9s linear infinite;
+  animation-play-state: paused;
+}
+
+.wd-track.fast {
+  animation-duration: 11s;
+}
+
+.wd-card:hover .wd-track {
+  animation-play-state: running;
+}
+
+@keyframes wd-scroll {
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+.wd-row {
+  border: 0.5px solid #e7eaee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.4rem 0.5rem;
+}
+
+.wd-row-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.md-kind {
-  font-size: 0.68rem;
+.wd-k {
+  font-size: 0.6rem;
   font-weight: 750;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #69707b;
 }
 
-.md-pending {
-  font-size: 0.66rem;
+.wd-t {
+  font-size: 0.72rem;
   font-weight: 700;
-  color: #b06a04;
-  background: rgba(232, 146, 12, 0.12);
-  padding: 0.15rem 0.45rem;
-  border-radius: 0.3rem;
-}
-
-.md-title {
   color: var(--ink);
-  font-size: 1rem;
 }
 
-.md-content {
-  color: #4f5862;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  flex: 1;
+.wd-m {
+  font-size: 0.66rem;
+  color: #8a8f98;
 }
 
-.md-card-foot {
+.wd-ok {
+  color: #138346;
+  font-weight: 700;
+}
+
+.wd-pay {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.wd-matched {
+  border: 0.5px solid rgba(31, 157, 87, 0.32);
+  background: rgba(31, 157, 87, 0.08);
+  border-radius: 8px;
+  padding: 0.42rem 0.55rem;
+}
+
+.wd-matched-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-top: 0.3rem;
-  padding-top: 0.6rem;
-  border-top: 0.5px solid #eef0f3;
+  font-size: 0.72rem;
 }
 
-.md-source {
-  font-size: 0.74rem;
-  color: #8a8f98;
-}
-
-.md-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.md-vis {
-  border: 0.5px solid #d7dde3;
-  background: #fff;
+.wd-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  padding: 0.28rem 0.6rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #586470;
+  background: #138346;
+  display: inline-block;
+  margin-right: 0.3rem;
 }
 
-.md-vis.private {
-  border-color: rgba(31, 77, 255, 0.35);
-  color: var(--accent);
-  background: #eef1ff;
-}
-
-.md-vis.shared {
-  border-color: rgba(31, 157, 87, 0.35);
-  color: #138346;
-  background: rgba(31, 157, 87, 0.1);
-}
-
-.md-del {
-  border: none;
-  background: none;
-  color: #a6abb3;
-  font-size: 0.72rem;
-  text-decoration: underline;
-}
-
-.md-del:hover {
-  color: #d23b2b;
-}
-
-.memory-empty {
-  grid-column: 1 / -1;
+.wd-foot {
+  font-size: 0.66rem;
   color: #8a8f98;
-  font-size: 0.92rem;
-  padding: 2rem 0;
+}
+
+@media (max-width: 600px) {
+  .wd-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wd-card::before {
+    animation: none;
+  }
+  .wd-track,
+  .wd-card:hover .wd-track {
+    animation: none !important;
+  }
 }
 
 .memory-guarantee {

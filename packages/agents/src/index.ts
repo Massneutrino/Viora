@@ -8,3 +8,4 @@ export * from "./worker-context-agent.js";
 export * from "./employer-context-agent.js";
 export * from "./ops-agent.js";
 export * from "./memory-agent.js";
+export * from "./guardrails.js";

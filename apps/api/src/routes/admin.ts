@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
 import { createLLMClient } from "@viora/agents";
+import { executePendingApproval, queuePendingApproval } from "../approvals.js";
 import { writeAuditEvent } from "../audit.js";
 
 const askSchema = z.object({
@@ -31,6 +32,15 @@ const cancelBookingSchema = z.object({
 
 const approveLeadSchema = z.object({
   adminId: z.string().min(1).optional(),
+});
+
+const approvalResolveSchema = z.object({
+  adminId: z.string().min(1).default("admin"),
+});
+
+const approvalRejectSchema = z.object({
+  adminId: z.string().min(1).default("admin"),
+  reason: z.string().min(1).optional(),
 });
 
 /** Stable, URL-safe id fragment so approving the same lead twice is idempotent. */
@@ -124,6 +134,117 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: "desc" },
     });
     return { events };
+  });
+
+  app.get("/approvals", async () => {
+    const approvals = await app.db.pendingApproval.findMany({
+      where: { status: "pending" },
+      include: { organisation: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return { approvals };
+  });
+
+  app.post("/approvals/:id/approve", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = approvalResolveSchema.parse(request.body ?? {});
+
+    const approval = await app.db.pendingApproval.findUnique({ where: { id } });
+    if (!approval) return reply.code(404).send({ error: "PendingApproval not found." });
+    if (approval.status !== "pending") {
+      return reply.code(409).send({ error: `Approval is already ${approval.status}.` });
+    }
+
+    const execution = await executePendingApproval(app, approval, body.adminId);
+    if (!execution.success) {
+      await writeAuditEvent(app.db, {
+        actorType: "admin",
+        actorId: body.adminId,
+        action: "approval.approve",
+        entityType: "PendingApproval",
+        entityId: id,
+        inputs: { approvalId: id, action: approval.action } as Prisma.InputJsonValue,
+        outputs: execution.outputs,
+        outcome: "execution_failed",
+      });
+      return reply.code(409).send({
+        success: false,
+        explanation: execution.explanation,
+      });
+    }
+
+    const updated = await app.db.$transaction(async (tx) => {
+      const resolved = await tx.pendingApproval.update({
+        where: { id },
+        data: {
+          status: "approved",
+          resolvedAt: new Date(),
+          resolvedBy: body.adminId,
+        },
+      });
+
+      await writeAuditEvent(tx, {
+        actorType: "admin",
+        actorId: body.adminId,
+        action: "approval.approve",
+        entityType: "PendingApproval",
+        entityId: id,
+        inputs: {
+          approvalId: id,
+          action: approval.action,
+          entityType: approval.entityType,
+          entityId: approval.entityId,
+        } as Prisma.InputJsonValue,
+        outputs: execution.outputs,
+        outcome: "approved",
+      });
+
+      return resolved;
+    });
+
+    return reply.send({ approval: updated, execution });
+  });
+
+  app.post("/approvals/:id/reject", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = approvalRejectSchema.parse(request.body ?? {});
+
+    const approval = await app.db.pendingApproval.findUnique({ where: { id } });
+    if (!approval) return reply.code(404).send({ error: "PendingApproval not found." });
+    if (approval.status !== "pending") {
+      return reply.code(409).send({ error: `Approval is already ${approval.status}.` });
+    }
+
+    const updated = await app.db.$transaction(async (tx) => {
+      const resolved = await tx.pendingApproval.update({
+        where: { id },
+        data: {
+          status: "rejected",
+          resolvedAt: new Date(),
+          resolvedBy: body.adminId,
+        },
+      });
+
+      await writeAuditEvent(tx, {
+        actorType: "admin",
+        actorId: body.adminId,
+        action: "approval.reject",
+        entityType: "PendingApproval",
+        entityId: id,
+        inputs: {
+          approvalId: id,
+          action: approval.action,
+          reason: body.reason ?? null,
+        } as Prisma.InputJsonValue,
+        outputs: { status: "rejected" } as Prisma.InputJsonValue,
+        outcome: "rejected",
+      });
+
+      return resolved;
+    });
+
+    return reply.send({ approval: updated });
   });
 
   app.get("/negotiations", async () => {
@@ -392,6 +513,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       bookingRequest.id,
       offer.id,
       body.workerId,
+      { approvedBy: body.adminId },
     );
 
     if (!result.success) return reply.code(409).send(result);
@@ -464,12 +586,33 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const replacement = await app.agents.employer.triggerReplacement(id);
+    const approval = replacement.requiresHumanApproval &&
+      replacement.auditPayload.queueAction === "replacement.trigger"
+      ? await queuePendingApproval(app.db, {
+          organisationId: result.booking.organisationId,
+          actorType: "agent",
+          actorId: "employer_context",
+          action: "replacement.trigger",
+          entityType: "Booking",
+          entityId: id,
+          inputs: {
+            bookingId: id,
+            bookingRequestId: existing.bookingRequestId,
+            triggeredBy: { actorType: "admin", actorId: body.adminId },
+            guardrail: replacement.auditPayload.guardrail ?? null,
+          } as Prisma.InputJsonValue,
+          explanation: replacement.explanation,
+        })
+      : null;
 
     return reply.send({
       ...result,
       replacement,
+      approval,
       message: replacement.success
         ? "Booking cancelled and replacement flow started."
+        : approval
+          ? "Booking cancelled; replacement queued for approval."
         : "Booking cancelled; replacement requires manual follow-up.",
     });
   });
@@ -517,6 +660,24 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const replacement = await app.agents.employer.triggerReplacement(id);
+    const approval = replacement.requiresHumanApproval &&
+      replacement.auditPayload.queueAction === "replacement.trigger"
+      ? await queuePendingApproval(app.db, {
+          organisationId: booking.organisationId,
+          actorType: "agent",
+          actorId: "employer_context",
+          action: "replacement.trigger",
+          entityType: "Booking",
+          entityId: id,
+          inputs: {
+            bookingId: id,
+            bookingRequestId: booking.bookingRequestId,
+            triggeredBy: { actorType: "admin", actorId: body.adminId },
+            guardrail: replacement.auditPayload.guardrail ?? null,
+          } as Prisma.InputJsonValue,
+          explanation: replacement.explanation,
+        })
+      : null;
     const bookingRequest = await app.db.bookingRequest.findUnique({
       where: { id: booking.bookingRequestId },
     });
@@ -524,8 +685,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({
       bookingRequest,
       replacement,
+      approval,
       message: replacement.success
         ? "Booking reopened and replacement flow started."
+        : approval
+          ? "Booking reopened; replacement queued for approval."
         : "Booking reopened; replacement requires manual follow-up.",
     });
   });
@@ -678,6 +842,25 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const csv = [header, ...rows].join("\n");
+
+    await writeAuditEvent(app.db, {
+      actorType: "admin",
+      actorId: "system",
+      action: "invoice.export",
+      entityType: "Invoice",
+      entityId: id,
+      inputs: {
+        invoiceId: id,
+        organisationId: invoice.organisationId,
+        periodStart: invoice.periodStart.toISOString(),
+        periodEnd: invoice.periodEnd.toISOString(),
+      } as Prisma.InputJsonValue,
+      outputs: {
+        rowCount: timesheets.length,
+        filename: `invoice-${id}.csv`,
+      } as Prisma.InputJsonValue,
+      outcome: "exported",
+    });
 
     reply.header("Content-Type", "text/csv");
     reply.header("Content-Disposition", `attachment; filename="invoice-${id}.csv"`);

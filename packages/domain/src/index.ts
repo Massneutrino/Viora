@@ -74,6 +74,8 @@ export type ConversationChannel = "app" | "whatsapp" | "voice" | "phone" | "web"
 
 export type ActorType = "user" | "agent" | "system" | "admin";
 
+export type PendingApprovalStatus = "pending" | "approved" | "rejected";
+
 export type MemoryOwnerType = "organisation" | "worker";
 
 export type MemorySubjectType =
@@ -311,6 +313,22 @@ export interface AuditEvent {
   outputs: Record<string, unknown>;
   outcome: string;
   createdAt: Date;
+}
+
+export interface PendingApproval {
+  id: string;
+  organisationId: string;
+  actorType: ActorType;
+  actorId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  inputs: Record<string, unknown>;
+  explanation: string;
+  status: PendingApprovalStatus;
+  createdAt: Date;
+  resolvedAt?: Date | null;
+  resolvedBy?: string | null;
 }
 
 export interface MemoryEntry {

@@ -1,12 +1,7 @@
 import { haversineKm } from "@viora/domain";
 import type { Offer, Prisma, PrismaClient } from "@viora/database";
+import { evaluateGuardrailAction } from "./guardrails.js";
 import type { MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
-
-const AUTONOMY_RANK = { L0: 0, L1: 1, L2: 2, L3: 3, L4: 4 } as const;
-
-function hasAtLeastL3(level: keyof typeof AUTONOMY_RANK): boolean {
-  return AUTONOMY_RANK[level] >= AUTONOMY_RANK.L3;
-}
 
 export function createMarketAgent(
   db: PrismaClient,
@@ -231,10 +226,28 @@ export function createMarketAgent(
         data: { fillProbability: probability },
       });
 
+      await db.auditEvent.create({
+        data: {
+          actorType: "agent",
+          actorId: "market",
+          action: "fill_probability.estimate",
+          entityType: "BookingRequest",
+          entityId: bookingRequestId,
+          inputs: {
+            bookingRequestId,
+            eligibleCount,
+            acceptanceRate,
+            resolvedOfferCount: resolved,
+          },
+          outputs: { fillProbability: probability },
+          outcome: "estimated",
+        },
+      });
+
       return probability;
     },
 
-    async broadcastOffers(bookingRequestId, strategy, autonomyLevel) {
+    async broadcastOffers(bookingRequestId, strategy, autonomyLevel, options) {
       const bookingRequest = await db.bookingRequest.findUnique({
         where: { id: bookingRequestId },
         include: {
@@ -253,40 +266,33 @@ export function createMarketAgent(
       }
 
       const policy = bookingRequest.organisation.guardrailPolicy;
-      const approvedRoleTypes = policy?.approvedRoleTypes ?? [];
-      const roleAllowed =
-        approvedRoleTypes.length === 0 || approvedRoleTypes.includes(bookingRequest.roleType);
-      const standardPayWithinBudget =
-        (policy?.budgetCeiling == null || bookingRequest.payRate <= policy.budgetCeiling) &&
-        (policy?.payFloor == null || bookingRequest.payRate >= policy.payFloor);
+      const broadcastGuardrail = await evaluateGuardrailAction(db, {
+        organisationId: bookingRequest.organisationId,
+        action: "broadcast",
+        roleType: bookingRequest.roleType,
+        payRate: bookingRequest.payRate,
+        strategy,
+        approvedBy: options?.approvedBy,
+      });
 
-      if (!roleAllowed || (bookingRequest.rateMode === "standard" && !standardPayWithinBudget)) {
-        await db.auditEvent.create({
-          data: {
-            actorType: "agent",
-            actorId: "market",
-            action: "offers.broadcast",
-            entityType: "BookingRequest",
-            entityId: bookingRequestId,
-            inputs: { bookingRequestId, strategy, autonomyLevel },
-            outputs: {
-              rateMode: bookingRequest.rateMode,
-              roleAllowed,
-              payWithinBudget: standardPayWithinBudget,
-              roleType: bookingRequest.roleType,
-              payRate: bookingRequest.payRate,
-              budgetCeiling: policy?.budgetCeiling ?? null,
-              payFloor: policy?.payFloor ?? null,
-            },
-            outcome: "blocked_guardrails",
-          },
-        });
+      if (!broadcastGuardrail.allowed || broadcastGuardrail.requiresHumanApproval) {
         return {
           success: false,
           data: [],
-          explanation: "Booking request exceeds organisation guardrails.",
+          explanation: broadcastGuardrail.reason,
           requiresHumanApproval: true,
-          auditPayload: { bookingRequestId, roleAllowed, payWithinBudget: standardPayWithinBudget },
+          auditPayload: {
+            queueAction: "offers.broadcast",
+            organisationId: bookingRequest.organisationId,
+            bookingRequestId,
+            strategy,
+            autonomyLevel,
+            guardrail: {
+              allowed: broadcastGuardrail.allowed,
+              requiresHumanApproval: broadcastGuardrail.requiresHumanApproval,
+              reason: broadcastGuardrail.reason,
+            },
+          },
         };
       }
 
@@ -304,9 +310,6 @@ export function createMarketAgent(
           auditPayload: { bookingRequestId },
         };
       }
-
-      const requiresHumanApproval =
-        autonomyLevel === "L0" || autonomyLevel === "L1" || strategy === "manual_approval";
 
       const whitelist =
         bookingRequest.organisation.guardrailPolicy?.workerWhitelist ?? [];
@@ -333,25 +336,32 @@ export function createMarketAgent(
       > = {};
 
       if (bookingRequest.rateMode === "dynamic") {
-        if (!hasAtLeastL3(autonomyLevel)) {
-          await db.auditEvent.create({
-            data: {
-              actorType: "agent",
-              actorId: "market",
-              action: "offers.broadcast",
-              entityType: "BookingRequest",
-              entityId: bookingRequestId,
-              inputs: { bookingRequestId, strategy, autonomyLevel },
-              outputs: { rateMode: "dynamic", requiredAutonomyLevel: "L3" },
-              outcome: "blocked_dynamic_rate_autonomy",
-            },
-          });
+        const dynamicGuardrail = await evaluateGuardrailAction(db, {
+          organisationId: bookingRequest.organisationId,
+          action: "dynamic_rate_clear",
+          roleType: bookingRequest.roleType,
+          payRate: bookingRequest.payRate,
+          approvedBy: options?.approvedBy,
+        });
+        if (!dynamicGuardrail.allowed || dynamicGuardrail.requiresHumanApproval) {
           return {
             success: false,
             data: [],
-            explanation: "Dynamic Rate requires L3 autonomy or above.",
+            explanation: dynamicGuardrail.reason,
             requiresHumanApproval: true,
-            auditPayload: { bookingRequestId, rateMode: "dynamic", autonomyLevel },
+            auditPayload: {
+              queueAction: "offers.broadcast",
+              organisationId: bookingRequest.organisationId,
+              bookingRequestId,
+              strategy,
+              autonomyLevel,
+              rateMode: "dynamic",
+              guardrail: {
+                allowed: dynamicGuardrail.allowed,
+                requiresHumanApproval: dynamicGuardrail.requiresHumanApproval,
+                reason: dynamicGuardrail.reason,
+              },
+            },
           };
         }
 
@@ -543,10 +553,9 @@ export function createMarketAgent(
           outputs: {
             offerCount: offers.length,
             offerIds: offers.map((o) => o.id),
-            requiresHumanApproval,
             rateMode: bookingRequest.rateMode,
           },
-          outcome: requiresHumanApproval ? "queued_for_approval" : "offers_sent",
+          outcome: "offers_sent",
         },
       });
 
@@ -554,8 +563,8 @@ export function createMarketAgent(
         success: true,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         data: offers as any,
-        explanation: `${offers.length} offer(s) broadcast. ${requiresHumanApproval ? "Pending human approval." : "Sent automatically."}`,
-        requiresHumanApproval,
+        explanation: `${offers.length} offer(s) broadcast. Sent automatically.`,
+        requiresHumanApproval: false,
         auditPayload: { bookingRequestId, offerCount: offers.length },
       };
     },

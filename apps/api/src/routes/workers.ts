@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
 import { haversineKm } from "@viora/domain";
+import { queuePendingApproval } from "../approvals.js";
 import { writeAuditEvent } from "../audit.js";
 import { makeStorageKey, saveFile, readFile, mimeFromKey } from "../storage.js";
 
@@ -455,6 +456,32 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
     );
 
     if (!result.success) {
+      if (
+        result.requiresHumanApproval &&
+        result.auditPayload.queueAction === "booking.create" &&
+        typeof result.auditPayload.organisationId === "string"
+      ) {
+        const approval = await queuePendingApproval(app.db, {
+          organisationId: result.auditPayload.organisationId,
+          actorType: "user",
+          actorId: workerId,
+          action: "booking.create",
+          entityType: "Offer",
+          entityId: offerId,
+          inputs: {
+            bookingRequestId: existing.bookingRequestId,
+            offerId,
+            workerId,
+            guardrail: result.auditPayload.guardrail ?? null,
+          } as Prisma.InputJsonValue,
+          explanation: result.explanation,
+        });
+        return reply.code(202).send({
+          requiresHumanApproval: true,
+          approval,
+          explanation: result.explanation,
+        });
+      }
       return reply.code(409).send(result);
     }
 
