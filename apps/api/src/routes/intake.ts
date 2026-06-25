@@ -206,7 +206,10 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       where: { organisationId: body.organisationId },
       select: { id: true, name: true },
     });
-    const organisationMemory = await app.agents.memory.getOrganisationContext(body.organisationId);
+    const organisationMemory = await app.agents.memory.getOrganisationContext(body.organisationId, {
+      purpose: "intake_default",
+      audience: "employer",
+    });
 
     let priorIntent: ParsedBookingIntent | null = null;
     let priorMessages: { role: string; content: string }[] = [];
@@ -494,6 +497,19 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       });
 
       return { bookingRequestId, conversationId: conversation.id };
+    });
+
+    await app.agents.memory.recordInfluence({
+      purpose: organisationMemory.audit.purpose,
+      audience: organisationMemory.audit.audience,
+      entityType: persistence.bookingRequestId ? "BookingRequest" : "Conversation",
+      entityId: persistence.bookingRequestId ?? persistence.conversationId,
+      action: clarificationNeeded ? "intake.clarify" : "intake.confirm",
+      memoryIds: organisationMemory.audit.memoryIds,
+      edgeIds: organisationMemory.audit.edgeIds,
+      useScopes: organisationMemory.audit.useScopes,
+      outcome: clarificationNeeded ? "clarification_required" : "pending_confirmation",
+      note: "Organisation memory was supplied to V for intake defaults and clarification reduction.",
     });
 
     await app.agents.memory.rememberFromEvent({

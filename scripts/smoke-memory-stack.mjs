@@ -112,7 +112,16 @@ try {
     visibility: "operational",
   });
   assert(orgMemory.ownerType === "organisation", "Organisation memory has wrong owner type.");
+  assert(orgMemory.useScopes.includes("intake_default"), "Organisation memory did not get intake scope.");
+  assert(orgMemory.useScopes.includes("connector_export"), "Organisation memory did not get export scope.");
   log("organisation memory created");
+
+  const connectors = await request(`/v1/organisations/${ORG_ID}/memory/connectors`);
+  assert(
+    connectors.connectors.some((connector) => connector.type === "institutional_kb" && connector.reviewGated),
+    "Connector foundation did not expose review-gated institutional memory.",
+  );
+  log("memory connectors listed");
 
   const orgUpdated = await patchMemory(`/v1/organisations/${ORG_ID}/memory/${orgMemory.id}`, {
     content: "Use familiar, compliant repeat workers first for KS2 cover when available.",
@@ -136,6 +145,7 @@ try {
   });
   assert(workerMemory.ownerType === "worker", "Worker memory has wrong owner type.");
   assert(workerMemory.visibility === "private", "Worker memory was not private.");
+  assert(workerMemory.useScopes.length === 1 && workerMemory.useScopes[0] === "profile", "Private worker memory was not profile-scoped.");
   log("private worker memory created");
 
   const orgListAfterWorkerCreate = await request(`/v1/organisations/${ORG_ID}/memory`);
@@ -145,11 +155,45 @@ try {
   );
   log("worker/organisation ownership isolation verified");
 
+  const workerRankingListBefore = await request(`/v1/workers/${WORKER_ID}/memory?scope=ranking_signal`);
+  assert(
+    !workerRankingListBefore.memories.some((memory) => memory.id === workerMemory.id),
+    "Private profile-only memory appeared in ranking scope.",
+  );
+  log("private worker memory excluded from ranking scope");
+
   const workerOperational = await patchMemory(`/v1/workers/${WORKER_ID}/memory/${workerMemory.id}`, {
     visibility: "operational",
+    useScopes: ["profile", "ranking_signal", "briefing", "explanation"],
   });
   assert(workerOperational.visibility === "operational", "Worker memory visibility did not update.");
+  assert(workerOperational.useScopes.includes("ranking_signal"), "Worker memory did not get explicit ranking scope.");
   log("worker memory visibility toggled");
+
+  const importResult = await request(`/v1/workers/${WORKER_ID}/memory/import`, {
+    method: "POST",
+    body: JSON.stringify({
+      connectorType: "personal_ai_memory",
+      sourceLabel: "Smoke personal AI memory",
+      items: [
+        {
+          connectorType: "personal_ai_memory",
+          connectorRef: `smoke-connector-${runId}`,
+          kind: "preference",
+          title: `Memory smoke imported ${runId}`,
+          content: "Imported preference should wait for worker confirmation.",
+          visibility: "private",
+          confidence: 0.82,
+          useScopes: ["profile"],
+        },
+      ],
+    }),
+  });
+  const imported = importResult.memories[0];
+  assert(importResult.reviewRequired === true, "Connector import was not review-gated.");
+  assert(imported.status === "pending_confirmation", "Imported memory was not pending confirmation.");
+  assert(imported.sourceType === "connector_import", "Imported memory did not record connector source.");
+  log("review-gated connector import verified");
 
   const inferred = await prisma.memoryEntry.create({
     data: {
@@ -175,8 +219,19 @@ try {
     pending.memories.some((memory) => memory.id === inferred.id),
     "Pending inferred memory did not appear in admin review.",
   );
+  assert(
+    pending.memories.some((memory) => memory.id === imported.id),
+    "Pending imported memory did not appear in admin review.",
+  );
   await patchMemory(`/v1/admin/memory/${inferred.id}`, { status: "active", adminId: "smoke-test" });
   log("admin pending memory review verified");
+
+  const exportResult = await request(`/v1/organisations/${ORG_ID}/memory/export`);
+  assert(
+    exportResult.memories.some((memory) => memory.id === orgMemory.id),
+    "Export endpoint did not include connector-export-scoped organisation memory.",
+  );
+  log("connector export verified");
 
   const offer = await request(`/v1/workers/${WORKER_ID}/offer`);
   if (offer.offer?.id === OFFER_ID) {
@@ -243,11 +298,41 @@ try {
   );
   log("compliance boundary verified after strong memory signal");
 
+  const influenceAudit = await request("/v1/admin/audit");
+  assert(
+    influenceAudit.events.some((event) => event.action === "memory.influence" && event.entityId === BOOKING_REQUEST_ID),
+    "Ranking did not write memory.influence audit event.",
+  );
+  log("memory influence audit verified");
+
+  const linkedEdge = await prisma.memoryEdge.create({
+    data: {
+      ownerType: "organisation",
+      ownerId: ORG_ID,
+      fromType: "organisation",
+      fromId: ORG_ID,
+      toType: "role",
+      toId: "ks2_supply_teacher",
+      kind: "pattern",
+      label: "Synthetic edge linked to a memory entry for deletion cleanup.",
+      weight: 0.2,
+      confidence: 0.7,
+      sourceType: "system_event",
+      sourceRefType: "MemoryEntry",
+      sourceRefId: orgMemory.id,
+      visibility: "operational",
+      status: "active",
+    },
+  });
+
   await deleteMemory(`/v1/organisations/${ORG_ID}/memory/${orgMemory.id}`);
   await deleteMemory(`/v1/workers/${WORKER_ID}/memory/${workerMemory.id}`);
+  await deleteMemory(`/v1/workers/${WORKER_ID}/memory/${imported.id}`);
+  const archivedLinkedEdge = await prisma.memoryEdge.findUnique({ where: { id: linkedEdge.id } });
+  assert(archivedLinkedEdge?.status === "archived", "Deleting a memory did not archive linked MemoryEdge rows.");
   await prisma.memoryEntry.update({
     where: { id: inferred.id },
-    data: { status: "deleted", content: "[deleted]" },
+    data: { status: "deleted", content: "[deleted]", deletedAt: new Date() },
   });
   log("memory cleanup completed");
 

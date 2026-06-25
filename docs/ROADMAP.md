@@ -10,7 +10,7 @@ See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 
 **Pilot acquisition (adjunct, not a core Phase 0 item)**: the public site (`apps/site`) leads with a live V conversation that qualifies organisations vs workers and captures pilot/waitlist leads (`POST /v1/pilot/chat`, consent-gated, audited), with manual forms as fallback.
 
-**Viora Memory v0**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals so V can start reducing repeated questions and improving briefings later.
+**Viora Memory v0/v1 governance**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals with use scopes, source/provenance, review-gated imports, influence audits, deletion controls, and a hard boundary between worker private memory and employer-facing ranking.
 
 **Exit criteria** (from `PHASE_0_SUCCESS_METRICS`):
 - ≥ 70% of bookings initiated conversationally
@@ -36,7 +36,7 @@ Replace manual compliance queue with API integrations: DBS online, Right to Work
 Agent-driven pay negotiation within guardrail bounds. Market Agent proposes a rate; employer and worker guardrails approve or escalate automatically.
 
 **Memory Controls**
-Employer and worker screens show "what V remembers" with view, edit, delete, and private controls. Important inferred memories are confirmed before V relies on them operationally.
+Employer and worker screens show "what V remembers" with view, edit, delete, source, scope, sensitivity, connector eligibility, and private controls. Important inferred or imported memories are confirmed before V relies on them operationally. Live third-party memory connectors can start here, but must sit behind the Phase 0 review-gated import/export foundation.
 
 **Fit Graph v1**
 Phase 1 starts using confirmed memory signals in intake defaults, pre-shift briefings, offer ranking, and explanations. The goal is fewer repeated employer questions, higher worker offer acceptance, better pre-shift confidence, and improved repeat booking rate.
@@ -56,6 +56,9 @@ Agency partner API: third-party agencies can plug their worker pools and credent
 
 **Fit Graph**
 Graph-based intelligence layer built from booking history, organisation memory, worker memory, site preferences, worker reliability, role-site match scores, acceptance behaviour, travel patterns, and feedback. Improves ranking accuracy and fill probability estimates over time.
+
+**Memory Connectors**
+Bidirectional external memory interoperability belongs in Phase 2 once consent, provenance, deletion propagation, and operational-use review have been proven with the Phase 0/1 connector foundation.
 
 **Geographic Expansion**
 Move beyond the Phase 0 pilot cluster to additional regions; MAT-level rollout for multi-site organisations.

@@ -56,12 +56,12 @@ async function buildServer() {
   await app.register(cors, { origin: true });
 
   const complianceAgent = createTrustComplianceAgent(prisma);
-  const marketAgent = createMarketAgent(prisma, complianceAgent);
   const memoryAgent = createMemoryAgent(prisma);
+  const marketAgent = createMarketAgent(prisma, complianceAgent, memoryAgent);
   app.decorate("agents", {
     v: vAgent,
     employer: createEmployerContextAgent(prisma, complianceAgent, marketAgent, memoryAgent),
-    worker: createWorkerContextAgent(prisma),
+    worker: createWorkerContextAgent(prisma, memoryAgent),
     market: marketAgent,
     compliance: complianceAgent,
     ops: createOpsAgent(prisma),

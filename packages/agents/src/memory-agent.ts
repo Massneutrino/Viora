@@ -1,9 +1,11 @@
 import type { Prisma, PrismaClient } from "@viora/database";
 import type {
+  MemoryAudience,
   MemoryKind,
   MemoryOwnerType,
   MemorySourceType,
   MemorySubjectType,
+  MemoryUseScope,
   MemoryVisibility,
 } from "@viora/domain";
 import { createLLMClient } from "./llm.js";
@@ -24,6 +26,15 @@ const MEMORY_KINDS = new Set<MemoryKind>([
 ]);
 
 const MEMORY_VISIBILITIES = new Set<MemoryVisibility>(["private", "operational", "shared"]);
+const DEFAULT_PURPOSE: MemoryUseScope = "profile";
+const ORG_OPERATIONAL_SCOPES: MemoryUseScope[] = [
+  "intake_default",
+  "ranking_signal",
+  "briefing",
+  "explanation",
+  "connector_export",
+];
+const WORKER_OPERATIONAL_SCOPES: MemoryUseScope[] = ["profile", "ranking_signal", "briefing", "explanation"];
 
 type MemoryCandidate = {
   kind: string;
@@ -108,12 +119,63 @@ function memoryStatus(candidate: MemoryCandidate, visibility: MemoryVisibility):
   return candidate.confidence >= AUTO_ACTIVATE_CONFIDENCE ? "active" : "pending_confirmation";
 }
 
+function defaultUseScopes(ownerType: MemoryOwnerType, visibility: MemoryVisibility): MemoryUseScope[] {
+  if (ownerType === "organisation") return ORG_OPERATIONAL_SCOPES;
+  return visibility === "private" ? ["profile"] : WORKER_OPERATIONAL_SCOPES;
+}
+
+function uniqueScopes(scopes: MemoryUseScope[]): MemoryUseScope[] {
+  return [...new Set(scopes)];
+}
+
 function summarizeContext(entries: MemoryContext["entries"], edges: MemoryContext["edges"]): string {
   const entryLines = entries.slice(0, 8).map((m) => `- ${m.title}: ${m.content}`);
   const edgeLines = edges
     .slice(0, 8)
     .map((e) => `- ${e.label} (${e.kind}, weight ${e.weight.toFixed(2)}, confidence ${e.confidence.toFixed(2)})`);
   return [...entryLines, ...edgeLines].join("\n");
+}
+
+function contextAudit(
+  purpose: MemoryUseScope,
+  audience: MemoryAudience,
+  entries: MemoryContext["entries"],
+  edges: MemoryContext["edges"],
+): MemoryContext["audit"] {
+  return {
+    purpose,
+    audience,
+    memoryIds: entries.map((m) => m.id),
+    edgeIds: edges.map((e) => e.id),
+    useScopes: uniqueScopes(entries.flatMap((m) => m.useScopes)),
+  };
+}
+
+function buildContext(
+  purpose: MemoryUseScope,
+  audience: MemoryAudience,
+  entries: MemoryContext["entries"],
+  edges: MemoryContext["edges"],
+): MemoryContext {
+  return {
+    entries,
+    edges,
+    summary: summarizeContext(entries, edges),
+    audit: contextAudit(purpose, audience, entries, edges),
+  };
+}
+
+function activeMemoryWhere(purpose: MemoryUseScope): Prisma.MemoryEntryWhereInput {
+  return {
+    status: "active",
+    useScopes: { has: purpose },
+    AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
+  };
+}
+
+function workerVisibilityFor(audience: MemoryAudience, includePrivate?: boolean): MemoryVisibility[] {
+  if (audience === "worker" || audience === "owner" || includePrivate) return ["private", "operational", "shared"];
+  return ["operational", "shared"];
 }
 
 async function writeMemoryAudit(
@@ -152,6 +214,7 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
       const key = candidate.key ? slug(candidate.key) : `${kind}_${slug(title)}`;
       const confidence = Math.max(0, Math.min(1, candidate.confidence));
       const status = memoryStatus({ ...candidate, confidence }, visibility);
+      const useScopes: MemoryUseScope[] = candidate.sensitive ? ["profile"] : defaultUseScopes(input.ownerType, visibility);
 
       const duplicate = await db.memoryEntry.findFirst({
         where: {
@@ -181,6 +244,9 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           sourceRefId: input.sourceRefId,
           visibility,
           status,
+          useScopes,
+          sensitivity: candidate.sensitive || visibility === "private" ? "sensitive" : "standard",
+          sourceLabel: "Viora Memory inference",
           confidence,
           confirmedAt: status === "active" ? new Date() : undefined,
           confirmedBy: status === "active" ? "memory" : undefined,
@@ -451,12 +517,39 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
       };
     },
 
+    async recordInfluence(input) {
+      if (input.memoryIds.length === 0 && (input.edgeIds ?? []).length === 0) return;
+      await writeMemoryAudit(
+        db,
+        "memory.influence",
+        input.entityType,
+        input.entityId,
+        {
+          purpose: input.purpose,
+          audience: input.audience,
+          action: input.action,
+          memoryIds: input.memoryIds,
+          edgeIds: input.edgeIds ?? [],
+          useScopes: input.useScopes,
+          note: input.note ?? null,
+        } as Prisma.InputJsonValue,
+        {
+          influencedAction: input.action,
+          memoryCount: input.memoryIds.length,
+          edgeCount: input.edgeIds?.length ?? 0,
+        } as Prisma.InputJsonValue,
+        input.outcome,
+      );
+    },
+
     async getOrganisationContext(organisationId, opts) {
+      const purpose = opts?.purpose ?? "intake_default";
+      const audience = opts?.audience ?? "employer";
       const entries = await db.memoryEntry.findMany({
         where: {
+          ...activeMemoryWhere(purpose),
           ownerType: "organisation",
           ownerId: organisationId,
-          status: "active",
           visibility: { in: ["operational", "shared"] },
           ...(opts?.siteId
             ? { OR: [{ subjectType: "organisation" }, { subjectType: "site", subjectId: opts.siteId }] }
@@ -471,21 +564,24 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           ownerId: organisationId,
           status: "active",
           visibility: { in: ["operational", "shared"] },
+          sourceRefType: { not: "MemoryEntry" },
           ...(opts?.siteId ? { OR: [{ fromId: opts.siteId }, { toId: opts.siteId }] } : {}),
         },
         orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
         take: 20,
       });
-      return { entries, edges, summary: summarizeContext(entries, edges) };
+      return buildContext(purpose, audience, entries, edges);
     },
 
     async getWorkerContext(workerId, opts) {
-      const visibility = opts?.includePrivate ? ["private", "operational", "shared"] : ["operational", "shared"];
+      const purpose = opts?.purpose ?? "profile";
+      const audience = opts?.audience ?? "worker";
+      const visibility = workerVisibilityFor(audience, opts?.includePrivate);
       const entries = await db.memoryEntry.findMany({
         where: {
+          ...activeMemoryWhere(purpose),
           ownerType: "worker",
           ownerId: workerId,
-          status: "active",
           visibility: { in: visibility as MemoryVisibility[] },
         },
         orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
@@ -497,28 +593,78 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           ownerId: workerId,
           status: "active",
           visibility: { in: visibility as MemoryVisibility[] },
+          sourceRefType: { not: "MemoryEntry" },
+          ...(opts?.siteId || opts?.roleType
+            ? {
+                OR: [
+                  ...(opts.siteId ? [{ toType: "site" as const, toId: opts.siteId }] : []),
+                  ...(opts.roleType ? [{ toType: "role" as const, toId: opts.roleType }] : []),
+                ],
+              }
+            : {}),
         },
         orderBy: [{ weight: "desc" }, { confidence: "desc" }],
         take: 20,
       });
-      return { entries, edges, summary: summarizeContext(entries, edges) };
+      return buildContext(purpose, audience, entries, edges);
     },
 
-    async getOfferContext(offerId) {
+    async getWorkerRankingContext(workerIds, opts) {
+      const purpose: MemoryUseScope = "ranking_signal";
+      const audience: MemoryAudience = "employer";
+      const [entries, edges] = await Promise.all([
+        db.memoryEntry.findMany({
+          where: {
+            ...activeMemoryWhere(purpose),
+            ownerType: "worker",
+            ownerId: { in: workerIds },
+            visibility: { in: ["operational", "shared"] },
+          },
+          orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
+          take: 100,
+        }),
+        db.memoryEdge.findMany({
+          where: {
+            ownerType: "worker",
+            ownerId: { in: workerIds },
+            status: "active",
+            visibility: { in: ["operational", "shared"] },
+            OR: [
+              { toType: "site", toId: opts.siteId },
+              { toType: "role", toId: opts.roleType },
+            ],
+          },
+          orderBy: [{ weight: "desc" }, { confidence: "desc" }],
+          take: 100,
+        }),
+      ]);
+      return buildContext(purpose, audience, entries, edges);
+    },
+
+    async getOfferContext(offerId, opts) {
       const offer = await db.offer.findUnique({
         where: { id: offerId },
         include: { bookingRequest: true },
       });
-      if (!offer) return { entries: [], edges: [], summary: "" };
+      const audience = opts?.audience ?? "worker";
+      if (!offer) return buildContext("explanation", audience, [], []);
       const [worker, organisation] = await Promise.all([
-        this.getWorkerContext(offer.workerId, { includePrivate: true }),
+        this.getWorkerContext(offer.workerId, {
+          audience,
+          purpose: "explanation",
+          includePrivate: audience === "worker",
+          siteId: offer.bookingRequest.siteId,
+          roleType: offer.bookingRequest.roleType,
+        }),
         this.getOrganisationContext(offer.bookingRequest.organisationId, {
+          purpose: "explanation",
+          audience,
           siteId: offer.bookingRequest.siteId,
         }),
       ]);
       const entries = [...worker.entries, ...organisation.entries];
       const edges = [...worker.edges, ...organisation.edges];
-      return { entries, edges, summary: summarizeContext(entries, edges) };
+      return buildContext("explanation", audience, entries, edges);
     },
   };
 }

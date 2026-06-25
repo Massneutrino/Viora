@@ -135,6 +135,7 @@ enum MemorySourceType {
   agent_inferred
   system_event
   feedback
+  connector_import
 }
 
 enum MemoryVisibility {
@@ -148,6 +149,27 @@ enum MemoryStatus {
   active
   archived
   deleted
+}
+
+enum MemoryUseScope {
+  profile
+  intake_default
+  ranking_signal
+  briefing
+  explanation
+  connector_export
+}
+
+enum MemorySensitivity {
+  standard
+  sensitive
+}
+
+enum MemoryConnectorType {
+  manual_json
+  institutional_kb
+  personal_ai_memory
+  mcp_adapter
 }
 
 model Organisation {
@@ -287,6 +309,14 @@ model MemoryEntry {
   sourceRefId   String?
   visibility    MemoryVisibility  @default(operational)
   status        MemoryStatus      @default(pending_confirmation)
+  useScopes     MemoryUseScope[]   @default([])
+  sensitivity   MemorySensitivity @default(standard)
+  sourceLabel   String?
+  expiresAt     DateTime?
+  deletedAt     DateTime?
+  connectorType MemoryConnectorType?
+  connectorRef  String?
+  connectorMetadata Json?
   confidence    Float             @default(0.5)
   confirmedAt   DateTime?
   confirmedBy   String?
@@ -297,6 +327,7 @@ model MemoryEntry {
   @@index([subjectType, subjectId])
   @@index([key])
   @@index([sourceRefType, sourceRefId])
+  @@index([connectorType, connectorRef])
 }
 
 model MemoryEdge {

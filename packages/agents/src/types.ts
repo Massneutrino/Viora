@@ -5,8 +5,10 @@ import type {
   Match,
   MemoryEdge,
   MemoryEntry,
+  MemoryAudience,
   MemoryOwnerType,
   MemorySubjectType,
+  MemoryUseScope,
   Offer,
 } from "@viora/domain";
 
@@ -89,6 +91,34 @@ export interface MemoryContext {
   entries: MemoryEntry[];
   edges: MemoryEdge[];
   summary: string;
+  audit: {
+    purpose: MemoryUseScope;
+    audience: MemoryAudience;
+    memoryIds: string[];
+    edgeIds: string[];
+    useScopes: MemoryUseScope[];
+  };
+}
+
+export interface MemoryContextOptions {
+  purpose?: MemoryUseScope;
+  audience?: MemoryAudience;
+  siteId?: string;
+  roleType?: string;
+  includePrivate?: boolean;
+}
+
+export interface MemoryInfluenceInput {
+  purpose: MemoryUseScope;
+  audience: MemoryAudience;
+  entityType: string;
+  entityId: string;
+  action: string;
+  memoryIds: string[];
+  edgeIds?: string[];
+  useScopes: MemoryUseScope[];
+  outcome: string;
+  note?: string;
 }
 
 /** Memory Agent — writes and retrieves Viora Memory. */
@@ -96,9 +126,14 @@ export interface MemoryAgent {
   rememberFromEvent(input: MemoryEventInput): Promise<AgentActionResult<MemoryEntry[]>>;
   recordOfferOutcome(offerId: string, outcome: "accepted" | "declined"): Promise<AgentActionResult>;
   recordShiftEvent(shiftId: string, outcome: string): Promise<AgentActionResult>;
-  getOrganisationContext(organisationId: string, opts?: { siteId?: string }): Promise<MemoryContext>;
-  getWorkerContext(workerId: string, opts?: { includePrivate?: boolean }): Promise<MemoryContext>;
-  getOfferContext(offerId: string): Promise<MemoryContext>;
+  recordInfluence(input: MemoryInfluenceInput): Promise<void>;
+  getOrganisationContext(organisationId: string, opts?: MemoryContextOptions): Promise<MemoryContext>;
+  getWorkerContext(workerId: string, opts?: MemoryContextOptions): Promise<MemoryContext>;
+  getWorkerRankingContext(
+    workerIds: string[],
+    opts: { siteId: string; roleType: string },
+  ): Promise<MemoryContext>;
+  getOfferContext(offerId: string, opts?: Pick<MemoryContextOptions, "audience">): Promise<MemoryContext>;
 }
 
 /** Market Agent — clears supply and demand. */

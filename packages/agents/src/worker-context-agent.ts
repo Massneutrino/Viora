@@ -1,8 +1,8 @@
 import type { PrismaClient } from "@viora/database";
 import { createLLMClient } from "./llm.js";
-import type { WorkerContextAgent } from "./types.js";
+import type { MemoryAgent, WorkerContextAgent } from "./types.js";
 
-export function createWorkerContextAgent(db: PrismaClient): WorkerContextAgent {
+export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent): WorkerContextAgent {
   return {
     async surfaceNextOffer(workerId) {
       const offer = await db.offer.findFirst({
@@ -82,7 +82,7 @@ export function createWorkerContextAgent(db: PrismaClient): WorkerContextAgent {
           },
         },
         matchReasoning: offer.match?.reasoning ?? null,
-        memory: await loadOfferMemoryContext(db, offer.workerId, offer.bookingRequest.organisationId, offer.bookingRequest.siteId),
+        memory: (await memory.getOfferContext(offerId, { audience: "worker" })).summary,
       };
 
       const fallback = offer.fitExplanation ?? "This shift matches your profile and location.";
@@ -100,6 +100,19 @@ export function createWorkerContextAgent(db: PrismaClient): WorkerContextAgent {
           await db.offer
             .update({ where: { id: offerId }, data: { fitExplanation: text } })
             .catch(() => {});
+          const offerMemory = await memory.getOfferContext(offerId, { audience: "worker" });
+          await memory.recordInfluence({
+            purpose: offerMemory.audit.purpose,
+            audience: offerMemory.audit.audience,
+            entityType: "Offer",
+            entityId: offerId,
+            action: "offer.explain_fit",
+            memoryIds: offerMemory.audit.memoryIds,
+            edgeIds: offerMemory.audit.edgeIds,
+            useScopes: offerMemory.audit.useScopes,
+            outcome: "explanation_generated",
+            note: "Worker-facing explanation may include the worker's own private profile memory.",
+          });
           return text;
         }
         return fallback;
@@ -108,62 +121,4 @@ export function createWorkerContextAgent(db: PrismaClient): WorkerContextAgent {
       }
     },
   };
-}
-
-async function loadOfferMemoryContext(
-  db: PrismaClient,
-  workerId: string,
-  organisationId: string,
-  siteId: string,
-): Promise<string> {
-  const [workerEntries, workerEdges, organisationEntries, organisationEdges] = await Promise.all([
-    db.memoryEntry.findMany({
-      where: {
-        ownerType: "worker",
-        ownerId: workerId,
-        status: "active",
-        visibility: { in: ["private", "operational", "shared"] },
-      },
-      orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
-      take: 6,
-    }),
-    db.memoryEdge.findMany({
-      where: {
-        ownerType: "worker",
-        ownerId: workerId,
-        status: "active",
-        visibility: { in: ["private", "operational", "shared"] },
-      },
-      orderBy: [{ weight: "desc" }, { confidence: "desc" }],
-      take: 6,
-    }),
-    db.memoryEntry.findMany({
-      where: {
-        ownerType: "organisation",
-        ownerId: organisationId,
-        status: "active",
-        visibility: { in: ["operational", "shared"] },
-        OR: [{ subjectType: "organisation" }, { subjectType: "site", subjectId: siteId }],
-      },
-      orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
-      take: 6,
-    }),
-    db.memoryEdge.findMany({
-      where: {
-        ownerType: "organisation",
-        ownerId: organisationId,
-        status: "active",
-        visibility: { in: ["operational", "shared"] },
-        OR: [{ fromId: siteId }, { toId: siteId }],
-      },
-      orderBy: [{ weight: "desc" }, { confidence: "desc" }],
-      take: 6,
-    }),
-  ]);
-
-  const entries = [...workerEntries, ...organisationEntries].map((m) => `- ${m.title}: ${m.content}`);
-  const edges = [...workerEdges, ...organisationEdges].map(
-    (e) => `- ${e.label} (${e.kind}, weight ${e.weight.toFixed(2)})`,
-  );
-  return [...entries, ...edges].join("\n");
 }

@@ -1,10 +1,11 @@
 import { haversineKm } from "@viora/domain";
 import type { PrismaClient } from "@viora/database";
-import type { MarketAgent, TrustComplianceAgent } from "./types.js";
+import type { MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
 
 export function createMarketAgent(
   db: PrismaClient,
   compliance: TrustComplianceAgent,
+  memory: MemoryAgent,
 ): MarketAgent {
   return {
     async rankCandidates(bookingRequestId, limit = 20) {
@@ -48,18 +49,11 @@ export function createMarketAgent(
         include: { passport: true },
       });
       const workerIds = workers.map((worker) => worker.id);
-      const memoryEdges = await db.memoryEdge.findMany({
-        where: {
-          ownerType: "worker",
-          ownerId: { in: workerIds },
-          status: "active",
-          visibility: { in: ["operational", "shared"] },
-          OR: [
-            { toType: "site", toId: site.id },
-            { toType: "role", toId: bookingRequest.roleType },
-          ],
-        },
+      const rankingMemory = await memory.getWorkerRankingContext(workerIds, {
+        siteId: site.id,
+        roleType: bookingRequest.roleType,
       });
+      const memoryEdges = rankingMemory.edges;
 
       type Candidate = {
         workerId: string;
@@ -159,9 +153,24 @@ export function createMarketAgent(
             workerPool: workers.length,
             topWorkerIds: top.slice(0, 5).map((c) => c.workerId),
             memoryEdges: memoryEdges.length,
+            memoryIds: rankingMemory.audit.memoryIds,
+            edgeIds: rankingMemory.audit.edgeIds,
           },
           outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
         },
+      });
+
+      await memory.recordInfluence({
+        purpose: rankingMemory.audit.purpose,
+        audience: rankingMemory.audit.audience,
+        entityType: "BookingRequest",
+        entityId: bookingRequestId,
+        action: "ranking.complete",
+        memoryIds: rankingMemory.audit.memoryIds,
+        edgeIds: rankingMemory.audit.edgeIds,
+        useScopes: rankingMemory.audit.useScopes,
+        outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
+        note: "Worker ranking used governed operational/shared memory signals only.",
       });
 
       return {

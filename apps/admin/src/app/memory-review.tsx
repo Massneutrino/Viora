@@ -15,6 +15,11 @@ export type MemoryReviewItem = {
   content: string;
   visibility: string;
   status: string;
+  useScopes: string[];
+  sensitivity: string;
+  sourceLabel?: string | null;
+  connectorType?: string | null;
+  connectorRef?: string | null;
   confidence: number;
   createdAt: string;
 };
@@ -62,6 +67,11 @@ export function MemoryReview({ initial }: { initial: MemoryReviewItem[] }) {
           </p>
           <p style={{ margin: "0.5rem 0 0", color: "var(--faint)", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             {item.ownerType}:{item.ownerId} · {item.kind} · {item.visibility} · {Math.round(item.confidence * 100)}%
+          </p>
+          <p style={{ margin: "0.35rem 0 0", color: "var(--muted)", fontSize: "0.72rem", lineHeight: 1.45 }}>
+            Scopes: {(item.useScopes ?? []).join(", ") || "none"} · Sensitivity: {item.sensitivity ?? "standard"}
+            {item.sourceLabel ? ` · Source: ${item.sourceLabel}` : ""}
+            {item.connectorType ? ` · Connector: ${item.connectorType}${item.connectorRef ? ` (${item.connectorRef})` : ""}` : ""}
           </p>
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
             <button

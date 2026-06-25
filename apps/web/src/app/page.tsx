@@ -42,6 +42,11 @@ type MemoryEntry = {
   kind: string
   visibility: "private" | "operational" | "shared"
   status: "pending_confirmation" | "active" | "archived" | "deleted"
+  useScopes: string[]
+  sensitivity: "standard" | "sensitive"
+  sourceLabel?: string | null
+  connectorType?: string | null
+  connectorRef?: string | null
   confidence: number
 }
 
@@ -162,7 +167,13 @@ function SettingsTab({
     const res = await fetch(`${apiUrl}/v1/organisations/${orgId}/memory`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "preference", title, content, visibility: "operational" }),
+      body: JSON.stringify({
+        kind: "preference",
+        title,
+        content,
+        visibility: "operational",
+        useScopes: ["intake_default", "ranking_signal", "briefing", "explanation", "connector_export"],
+      }),
     })
     if (!res.ok) { alert("Could not save memory."); return }
     const data = await res.json()
@@ -243,7 +254,7 @@ function SettingsTab({
           <SettingRow
             key={memory.id}
             label={memory.title}
-            sublabel={`${memory.content} · ${humanize(memory.kind)} · ${humanize(memory.visibility)} · ${humanize(memory.status)}`}
+            sublabel={`${memory.content} · ${humanize(memory.kind)} · ${humanize(memory.visibility)} · ${humanize(memory.status)} · ${(memory.useScopes ?? []).map(humanize).join(", ")} · ${humanize(memory.sensitivity ?? "standard")}${memory.sourceLabel ? ` · ${memory.sourceLabel}` : ""}${memory.connectorType ? ` · ${humanize(memory.connectorType)}` : ""}`}
           >
             <div style={{ display: "flex", gap: 6 }}>
               {memory.status === "pending_confirmation" && (

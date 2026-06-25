@@ -95,11 +95,34 @@ export type MemoryKind =
   | "pay_signal"
   | "feedback_summary";
 
-export type MemorySourceType = "user_entered" | "agent_inferred" | "system_event" | "feedback";
+export type MemorySourceType =
+  | "user_entered"
+  | "agent_inferred"
+  | "system_event"
+  | "feedback"
+  | "connector_import";
 
 export type MemoryVisibility = "private" | "operational" | "shared";
 
 export type MemoryStatus = "pending_confirmation" | "active" | "archived" | "deleted";
+
+export type MemoryUseScope =
+  | "profile"
+  | "intake_default"
+  | "ranking_signal"
+  | "briefing"
+  | "explanation"
+  | "connector_export";
+
+export type MemorySensitivity = "standard" | "sensitive";
+
+export type MemoryConnectorType =
+  | "manual_json"
+  | "institutional_kb"
+  | "personal_ai_memory"
+  | "mcp_adapter";
+
+export type MemoryAudience = "owner" | "worker" | "employer" | "admin" | "agent";
 
 /** Constraints defining what V can do autonomously for an employer or worker. */
 export interface GuardrailPolicy {
@@ -303,6 +326,14 @@ export interface MemoryEntry {
   sourceRefId?: string | null;
   visibility: MemoryVisibility;
   status: MemoryStatus;
+  useScopes: MemoryUseScope[];
+  sensitivity: MemorySensitivity;
+  sourceLabel?: string | null;
+  expiresAt?: Date | null;
+  deletedAt?: Date | null;
+  connectorType?: MemoryConnectorType | null;
+  connectorRef?: string | null;
+  connectorMetadata?: unknown;
   confidence: number;
   confirmedAt?: Date | null;
   confirmedBy?: string | null;

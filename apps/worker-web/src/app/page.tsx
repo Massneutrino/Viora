@@ -41,6 +41,11 @@ type MemoryEntry = {
   kind: string
   visibility: "private" | "operational" | "shared"
   status: "pending_confirmation" | "active" | "archived" | "deleted"
+  useScopes: string[]
+  sensitivity: "standard" | "sensitive"
+  sourceLabel?: string | null
+  connectorType?: string | null
+  connectorRef?: string | null
   confidence: number
 }
 
@@ -447,13 +452,13 @@ function ProfileTab({
             <div>
               <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>{memory.title}</p>
               <p style={{ color: "var(--muted)", fontSize: 11, margin: "2px 0 0", lineHeight: 1.4 }}>{memory.content}</p>
-              <p style={{ color: memory.visibility === "private" ? "var(--accent)" : "var(--faint)", fontSize: 10, margin: "5px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{memory.visibility} · {memory.status}</p>
+              <p style={{ color: memory.visibility === "private" ? "var(--accent)" : "var(--faint)", fontSize: 10, margin: "5px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{memory.visibility} · {memory.status} · {(memory.useScopes ?? []).map(humanizeRole).join(", ")} · {memory.sensitivity ?? "standard"}{memory.sourceLabel ? ` · ${memory.sourceLabel}` : ""}{memory.connectorType ? ` · ${humanizeRole(memory.connectorType)}` : ""}</p>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {memory.status === "pending_confirmation" && (
                 <button onClick={() => void patchMemory(memory.id, { status: "active" })} style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
               )}
-              <button onClick={() => void patchMemory(memory.id, { visibility: memory.visibility === "private" ? "operational" : "private" })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>{memory.visibility === "private" ? "Use in matching" : "Make private"}</button>
+              <button onClick={() => void patchMemory(memory.id, memory.visibility === "private" ? { visibility: "operational", useScopes: ["profile", "ranking_signal", "briefing", "explanation"], status: "active" } : { visibility: "private", useScopes: ["profile"] })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>{memory.visibility === "private" ? "Use in matching" : "Make private"}</button>
               <button onClick={() => {
                 const content = window.prompt("Update memory", memory.content)
                 if (content) void patchMemory(memory.id, { content })
