@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { PHASE_0_MUST_HAVE } from "@viora/domain";
+import { ApprovalsQueue, type ApprovalQueueItem } from "./approvals-queue";
 import { ComplianceQueue, type ComplianceQueueItem } from "./compliance-queue";
 import { MemoryReview, type MemoryReviewItem } from "./memory-review";
 import { MemoryLab, type MemoryLabState } from "./memory-lab";
@@ -78,6 +79,7 @@ export interface ConsoleData {
   unfilled: UnfilledShift[];
   marketHealth: MarketHealth;
   compliance: ComplianceQueueItem[];
+  approvals: ApprovalQueueItem[];
   memory: MemoryReviewItem[];
   pilotLeads: PilotLead[];
   audit: AuditEvent[];
@@ -110,7 +112,7 @@ function formatGbp(value: number): string {
 
 // ── Overview ────────────────────────────────────────────────────────────────
 export function OverviewSection({ data }: { data: ConsoleData }) {
-  const { stats, marketHealth, unfilled, compliance, pilotLeads } = data;
+  const { stats, marketHealth, unfilled, compliance, approvals, pilotLeads } = data;
   const reliability =
     stats.workforce.avgReliability != null
       ? stats.workforce.avgReliability.toFixed(2)
@@ -136,6 +138,11 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
           label="Compliance queue"
           value={String(compliance.length)}
           tone={compliance.length > 0 ? "warning" : "default"}
+        />
+        <StatCard
+          label="Approvals queue"
+          value={String(approvals.length)}
+          tone={approvals.length > 0 ? "warning" : "default"}
         />
         <StatCard label="Pilot leads" value={String(pilotLeads.length)} />
       </section>
@@ -185,13 +192,16 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
 
 // ── Operations ────────────────────────────────────────────────────────────────
 export function OperationsSection({ data }: { data: ConsoleData }) {
-  const { compliance, memory, unfilled, audit, negotiations } = data;
+  const { compliance, approvals, memory, unfilled, audit, negotiations } = data;
   const recovery = audit.filter((e) => RECOVERY_ACTIONS.includes(e.action));
 
   return (
     <div style={gridStyle}>
       <Panel title="Compliance queue" description="Manual verification (Phase 0)">
         <ComplianceQueue initial={compliance} />
+      </Panel>
+      <Panel title="Approvals queue" description="Guardrail-blocked actions awaiting human sign-off">
+        <ApprovalsQueue initial={approvals} />
       </Panel>
       <Panel title="Memory review" description="Inferred memories pending confirmation">
         <MemoryReview initial={memory} />

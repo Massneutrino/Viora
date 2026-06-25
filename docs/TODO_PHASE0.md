@@ -6,7 +6,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 **Last reviewed:** 2026-06-25
 
-**Remaining for Phase 0 close-out (2 items):** WhatsApp channel (2)
+**Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
 
 **Recent fixes (review follow-up):**
 - Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection (employer web toggle — `apps/web/src/app/page.tsx`), Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation (mobile + worker-web), and admin ops **Dynamic Rate** panel (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`). Phase 0 remains Standard Rate by default.
@@ -150,8 +150,8 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## WhatsApp Channel
 
-- 🔲 WhatsApp Business API webhook receiver
-- 🔲 Route WhatsApp messages through V intake pipeline (`channel: "whatsapp"`)
+- ✅ WhatsApp Business API webhook receiver — `GET/POST /v1/webhooks/whatsapp` verifies Meta challenge/signature, audits message/status events, and handles duplicate/non-text messages.
+- ✅ Route WhatsApp messages through V intake pipeline (`channel: "whatsapp"`) — inbound text maps to `WHATSAPP_DEFAULT_ORGANISATION_ID` (`demo-org` locally), persists `Conversation` / `ConversationMessage`, and sends or stubs outbound WhatsApp replies.
 
 ## AI / LLM (post-MVP)
 

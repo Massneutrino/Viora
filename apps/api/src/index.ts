@@ -31,6 +31,7 @@ import { demoRoutes } from "./routes/demo.js";
 import { pilotRoutes } from "./routes/pilot.js";
 import { sandboxRoutes } from "./routes/sandbox.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { whatsappRoutes } from "./routes/whatsapp.js";
 
 const port = Number(process.env.API_PORT ?? 6200);
 
@@ -77,6 +78,7 @@ async function buildServer() {
   await app.register(organisationRoutes, { prefix: "/v1/organisations" });
   await app.register(pilotRoutes, { prefix: "/v1/pilot" });
   await app.register(memoryRoutes, { prefix: "/v1" });
+  await app.register(whatsappRoutes, { prefix: "/v1/webhooks" });
   await app.register(adminRoutes, { prefix: "/v1/admin" });
   await app.register(complianceAdminRoutes, { prefix: "/v1/admin" });
   await app.register(demoRoutes, { prefix: "/v1/admin" });

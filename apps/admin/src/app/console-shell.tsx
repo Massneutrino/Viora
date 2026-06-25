@@ -25,7 +25,7 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
     id: "operations",
     label: "Operations",
     title: "Operations",
-    subtitle: "Compliance queue, unfilled shifts and the audit trail.",
+    subtitle: "Compliance, approvals queue, unfilled shifts and the audit trail.",
     icon: <PulseIcon />,
   },
   {

@@ -1,3 +1,4 @@
+import type { ApprovalQueueItem } from "./approvals-queue";
 import { ConsoleShell } from "./console-shell";
 import type { ComplianceQueueItem } from "./compliance-queue";
 import {
@@ -25,11 +26,12 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function AdminConsole() {
-  const [unfilledData, marketHealth, complianceData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab] =
+  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab] =
     await Promise.all([
       getJson<{ unfilled: UnfilledShift[] }>("/v1/admin/ops/unfilled", { unfilled: [] }),
       getJson<MarketHealth>("/v1/admin/ops/market-health", {}),
       getJson<{ pending: ComplianceQueueItem[] }>("/v1/admin/compliance/queue", { pending: [] }),
+      getJson<{ approvals: ApprovalQueueItem[] }>("/v1/admin/approvals", { approvals: [] }),
       getJson<{ memories: MemoryReviewItem[] }>("/v1/admin/memory/pending", { memories: [] }),
       getJson<{ leads: PilotLead[] }>("/v1/admin/pilot/leads", { leads: [] }),
       getJson<{ events: AuditEvent[] }>("/v1/admin/audit", { events: [] }),
@@ -52,6 +54,7 @@ export default async function AdminConsole() {
         unfilled: unfilledData.unfilled,
         marketHealth,
         compliance: complianceData.pending,
+        approvals: approvalsData.approvals,
         memory: memoryData.memories,
         pilotLeads: pilotLeadData.leads,
         audit: auditData.events,

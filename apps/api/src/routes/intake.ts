@@ -1,15 +1,39 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { ParsedBookingIntent, VIntakeContext } from "@viora/agents";
 import type { Prisma } from "@viora/database";
 
-const parseIntentSchema = z.object({
+export const parseIntentSchema = z.object({
   organisationId: z.string(),
   rawInput: z.string().min(1),
   rateMode: z.enum(["standard", "dynamic"]).optional(),
   channel: z.enum(["app", "whatsapp", "voice", "phone", "web"]).default("web"),
   conversationId: z.string().nullish(),
 });
+
+type ProcessIntakeTurnInput = z.input<typeof parseIntentSchema> & {
+  inboundMetadata?: Prisma.InputJsonValue;
+  outboundMetadata?: Prisma.InputJsonValue;
+};
+
+type ProcessIntakeTurnResult = {
+  intent: ParsedBookingIntent | null;
+  clarificationNeeded: boolean;
+  message: string;
+  bookingRequestId: string | null | undefined;
+  conversationId: string;
+  fallbackUsed: boolean;
+  degradedReason?: string;
+};
+
+export class IntakeHttpError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    public readonly payload: Record<string, unknown>,
+  ) {
+    super(typeof payload.error === "string" ? payload.error : "Intake request failed.");
+  }
+}
 
 const FALLBACK_MISSING_FIELDS = ["roleType", "siteId", "startAt", "endAt", "payRate"];
 
@@ -167,38 +191,42 @@ function normalizeMissingFields(
   return [...missing];
 }
 
-export const intakeRoutes: FastifyPluginAsync = async (app) => {
-  /** POST /v1/intake/parse - V-powered natural language intake (Phase 0) */
-  app.post("/parse", async (request, reply) => {
-    const body = parseIntentSchema.parse(request.body);
+export async function processIntakeTurn(
+  app: FastifyInstance,
+  log: FastifyBaseLogger,
+  input: ProcessIntakeTurnInput,
+): Promise<ProcessIntakeTurnResult> {
+  const inboundMetadata = input.inboundMetadata ?? ({ channel: input.channel ?? "web" } as Prisma.InputJsonValue);
+  const outboundMetadata = input.outboundMetadata ?? ({} as Prisma.InputJsonValue);
+  const body = parseIntentSchema.parse(input);
 
-    const organisation = await app.db.organisation.findUnique({
-      where: { id: body.organisationId },
-      include: { guardrailPolicy: true },
-    });
+  const organisation = await app.db.organisation.findUnique({
+    where: { id: body.organisationId },
+    include: { guardrailPolicy: true },
+  });
 
-    if (!organisation) {
-      return reply.code(404).send({ error: "Organisation not found." });
-    }
+  if (!organisation) {
+    throw new IntakeHttpError(404, { error: "Organisation not found." });
+  }
 
-    if (!organisation.guardrailPolicy) {
-      return reply.code(409).send({
-        error: "GuardrailPolicy missing for organisation.",
-        organisationId: body.organisationId,
-      });
-    }
-
-    const intakeContext: VIntakeContext = {
+  if (!organisation.guardrailPolicy) {
+    throw new IntakeHttpError(409, {
+      error: "GuardrailPolicy missing for organisation.",
       organisationId: body.organisationId,
-      guardrails: {
-        autonomyLevel: organisation.guardrailPolicy.autonomyLevel,
-        budgetCeiling: organisation.guardrailPolicy.budgetCeiling ?? undefined,
-        payFloor: organisation.guardrailPolicy.payFloor ?? undefined,
-        maxCommuteMinutes: organisation.guardrailPolicy.maxCommuteMinutes ?? undefined,
-        approvedRoleTypes: organisation.guardrailPolicy.approvedRoleTypes,
-        escalationContacts: organisation.guardrailPolicy.escalationContacts,
-      },
-    };
+    });
+  }
+
+  const intakeContext: VIntakeContext = {
+    organisationId: body.organisationId,
+    guardrails: {
+      autonomyLevel: organisation.guardrailPolicy.autonomyLevel,
+      budgetCeiling: organisation.guardrailPolicy.budgetCeiling ?? undefined,
+      payFloor: organisation.guardrailPolicy.payFloor ?? undefined,
+      maxCommuteMinutes: organisation.guardrailPolicy.maxCommuteMinutes ?? undefined,
+      approvedRoleTypes: organisation.guardrailPolicy.approvedRoleTypes,
+      escalationContacts: organisation.guardrailPolicy.escalationContacts,
+    },
+  };
 
     const guardrailSnapshot = {
       autonomyLevel: intakeContext.guardrails.autonomyLevel,
@@ -225,7 +253,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         include: { messages: { orderBy: { createdAt: "asc" } } },
       });
       if (!existing || existing.participantId !== body.organisationId) {
-        return reply.code(404).send({ error: "Conversation not found." });
+        throw new IntakeHttpError(404, { error: "Conversation not found." });
       }
       priorIntent = deserializeIntent(existing.extractedEntities as Record<string, unknown>);
       priorMessages = existing.messages.map((m) => ({ role: m.role, content: m.content }));
@@ -248,7 +276,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       );
     } catch (err) {
       const providerError = serializeError(err);
-      request.log.warn({ err }, "V intake parse failed; using degraded fallback");
+      log.warn({ err }, "V intake parse failed; using degraded fallback");
       const message = fallbackIntakeMessage();
       const fallbackSnapshot = {
         rawInput: body.rawInput,
@@ -262,12 +290,15 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
           {
             role: "employer",
             content: body.rawInput,
-            metadata: { channel: body.channel } as Prisma.InputJsonValue,
+            metadata: inboundMetadata,
           },
           {
             role: "agent",
             content: message,
             metadata: {
+              ...(typeof outboundMetadata === "object" && outboundMetadata !== null && !Array.isArray(outboundMetadata)
+                ? outboundMetadata
+                : {}),
               clarificationNeeded: true,
               missingFields: FALLBACK_MISSING_FIELDS,
               bookingRequestId: null,
@@ -347,7 +378,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         return { conversationId: conversation.id };
       });
 
-      return reply.send({
+      return {
         intent: null,
         clarificationNeeded: true,
         message,
@@ -355,7 +386,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         conversationId: persistence.conversationId,
         fallbackUsed: true,
         degradedReason: "llm_unavailable",
-      });
+      };
     }
 
     const missingFields = normalizeMissingFields(parsedIntent, intakeContext.guardrails);
@@ -379,7 +410,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         ? await app.agents.v.clarify(missingFields, clarificationContext)
         : await app.agents.v.confirmIntent(intent);
     } catch (err) {
-      request.log.warn({ err }, "V intake response generation failed; using deterministic response");
+      log.warn({ err }, "V intake response generation failed; using deterministic response");
       responseFallbackUsed = true;
       responseProviderError = serializeError(err);
       message = clarificationNeeded ? fallbackClarificationMessage(missingFields) : fallbackConfirmationMessage(intent);
@@ -413,12 +444,15 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         {
           role: "employer",
           content: body.rawInput,
-          metadata: { channel: body.channel } as Prisma.InputJsonValue,
+          metadata: inboundMetadata,
         },
         {
           role: "agent",
           content: message,
           metadata: {
+            ...(typeof outboundMetadata === "object" && outboundMetadata !== null && !Array.isArray(outboundMetadata)
+              ? outboundMetadata
+              : {}),
             clarificationNeeded,
             missingFields,
             bookingRequestId: bookingRequestId ?? null,
@@ -537,9 +571,9 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
         missingFields,
         channel: body.channel,
       },
-    }).catch((err) => request.log.warn({ err }, "memory inference failed after intake"));
+    }).catch((err) => log.warn({ err }, "memory inference failed after intake"));
 
-    return reply.send({
+    return {
       intent,
       clarificationNeeded,
       message,
@@ -547,6 +581,19 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       conversationId: persistence.conversationId,
       fallbackUsed: responseFallbackUsed,
       ...(responseFallbackUsed ? { degradedReason: "llm_unavailable" } : {}),
-    });
+    };
+}
+
+export const intakeRoutes: FastifyPluginAsync = async (app) => {
+  /** POST /v1/intake/parse - V-powered natural language intake (Phase 0) */
+  app.post("/parse", async (request, reply) => {
+    try {
+      return await processIntakeTurn(app, request.log, request.body as ProcessIntakeTurnInput);
+    } catch (err) {
+      if (err instanceof IntakeHttpError) {
+        return reply.code(err.statusCode).send(err.payload);
+      }
+      throw err;
+    }
   });
 };

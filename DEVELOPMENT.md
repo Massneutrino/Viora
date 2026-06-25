@@ -140,6 +140,19 @@ Bookings use `rateMode: "standard" | "dynamic"`. Standard Rate broadcasts the fi
 
 ---
 
+## WhatsApp Channel
+
+Meta webhook endpoints live at `GET/POST /v1/webhooks/whatsapp`. `GET` verifies the Meta challenge with `WHATSAPP_VERIFY_TOKEN`; `POST` verifies `x-hub-signature-256` using `WHATSAPP_APP_SECRET`, audits message/status events, routes text messages into the V intake pipeline with `channel: "whatsapp"`, and replies through the WhatsApp Business API when `WHATSAPP_API_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` are set. Without send credentials, outbound replies are stubbed and audited for local development.
+
+Phase 0 maps all inbound WhatsApp senders to `WHATSAPP_DEFAULT_ORGANISATION_ID` (use `demo-org` locally). Set `WHATSAPP_API_VERSION` to override the default Meta Graph API version (`v20.0`).
+
+Manual test steps:
+1. Start the API with `.env` populated for `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, and `WHATSAPP_DEFAULT_ORGANISATION_ID=demo-org`.
+2. In Meta's webhook tester, subscribe the callback URL to `/v1/webhooks/whatsapp`; the `hub.challenge` response should match and write `whatsapp.webhook.verified`.
+3. Send a sandbox text message. Confirm `AuditEvent` rows for `whatsapp.message.received`, `intake.parse`, and `whatsapp.outbound.send`, plus `Conversation` / `ConversationMessage` rows with `channel: "whatsapp"`.
+4. Repeat the same signed payload with the same WhatsApp `wamid`; it should audit `whatsapp.message.duplicate` and skip intake.
+5. Send a status event; it should write `whatsapp.status.received` without creating a new conversation.
+
 ## Build & Type-Check
 
 ```bash
