@@ -9,6 +9,7 @@ AI-native staffing OS for regulated sectors. Phase 0 wedge: UK education (supply
 ```
 apps/
   api/        Fastify REST API — port 6200
+  site/       Public website (Next.js) — port 6103
   web/        Employer dashboard (Next.js) — port 6100
   admin/      Ops console (Next.js) — port 6101
   worker-web/ Worker swipe deck preview (Next.js) — port 6102
@@ -17,7 +18,7 @@ packages/
   domain/     Shared TypeScript types, Phase 0 scope constants, education compliance gates
   database/   Prisma schema + PostgreSQL client singleton
   agents/     Agent interfaces, stubs, and LLM-backed implementations
-  ui/         Shared React UI — V pixel-sphere identity + responsive AppShell (web + worker-web)
+  ui/         Shared React UI — V pixel-sphere identity, responsive AppShell, settings primitives (SectionCard/EditableField/etc.) (web + worker-web)
   tsconfig/   Shared TypeScript configurations
 ```
 
@@ -32,6 +33,7 @@ npm run dev          # starts dev workspaces via Turbo on pinned ports
 
 Local ports are pinned in workspace scripts:
 - API: 6200
+- Public site: 6103
 - Employer web: 6100
 - Admin console: 6101
 - Worker web preview: 6102
@@ -44,6 +46,14 @@ Local ports are pinned in workspace scripts:
 - Schema managed via Prisma: `npm run db:migrate`
 - Seed demo data: `npm run db:seed`
 - All Prisma scripts require `--env-file ../../.env` (already scripted in `packages/database/package.json`)
+
+**Demo sandbox**: open the admin console at http://localhost:6101 and use **Dev tools -> Demo sandbox** for deterministic end-to-end runs. The API lives under `/v1/admin/sandbox/*`; reset clears only sandbox-tagged data (`[sandbox:<runId>]`) and keeps seeded avatars available.
+
+**Memory stack**: structured memories live in `MemoryEntry` / `MemoryEdge`. CRUD is under `/v1/{organisations|workers}/:id/memory`; admin pending review is `GET /v1/admin/memory/pending`. In the admin console use **Dev tools -> Memory lab** to seed/edit demo memories and **Memory review** to confirm inferred entries. Smoke test: `npm run test:memory`.
+
+**Public site (`apps/site`, http://localhost:6103)**: voice-first hero — heading + animated typewriter subheading, V as the centerpiece, a **Speak with V** CTA that opens an inline voice conversation (speech-to-text + `speechSynthesis`, with typed fallback). It calls `POST /v1/pilot/chat` (consent-gated, audited lead capture; shares `createPilotLead` with `POST /v1/pilot/leads`). Readiness/intent are decided server-side, not by the LLM; the chat turn may include a `remembered` note (Viora Memory). A quick-form modal and `/register` (Sign-in target) also create pilot leads. Requires the API on :6200. Env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` (OG metadata).
+
+**Waitlist → access**: pilot leads (from chat, the quick-form modal, or `/register`) land in the admin **Pilot leads** tab (http://localhost:6101). **Approve & mint** calls `POST /v1/admin/pilot/leads/:id/approve`, which upserts the real `Organisation`/`Worker` (deterministic ids, idempotent) and returns a `?orgId=`/`?workerId=` access link into the employer (:6100) / worker (:6102) app. The API builds those links from `WEB_URL` / `WORKER_WEB_URL` (default localhost 6100/6102). Interim demo access until real auth replaces it.
 
 **Environment**: copy `.env.example` → `.env` and fill in:
 - `DATABASE_URL` — already set for local dev (postgresql://viora:viora@localhost:5432/viora)

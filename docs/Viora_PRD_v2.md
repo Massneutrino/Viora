@@ -379,7 +379,23 @@ Viora Pay gives workers access to a portion of confirmed earned wages before sta
 
 Viora Pay is a Phase 1 feature, subject to specialist legal review before shipping. The UK FCA has published guidance noting that many Employer Salary Advance Schemes fall outside consumer credit regulation but can raise consumer-protection-style risks around repeated use and cost transparency. Viora Pay will be built with explicit cost transparency, usage-rate monitoring, and legal sign-off before any worker accesses it.
 
-### 7.9 The Fit Graph — Employer and Site Intelligence
+### 7.9 Viora Memory — The Work Memory Layer
+
+Viora Memory is the structured memory layer behind V. It is how V remembers organisation preferences, site context, worker preferences, shift outcomes, feedback, and fit signals across time. Traditional agencies depend on human account managers remembering which schools are difficult to fill, which workers perform well in specific environments, and which details make a shift succeed. Viora turns that informal memory into an auditable, user-controllable product capability.
+
+Viora Memory has two primary forms:
+
+**Organisation Memory** — site instructions, booking defaults, preferred workers, blocked workers, escalation preferences, approval patterns, rate patterns, recurring demand, class or role context, school-specific briefing notes, and what has historically improved fill rate.
+
+**Worker Memory** — availability preferences, commute tolerance, role confidence, pay expectations, school and site preferences, disliked shift patterns, career goals, private notes, feedback history, and auto-accept rules.
+
+Memory is never a hidden compliance engine. It can improve intake, ranking, briefings, and explanations, but deterministic compliance gates still decide eligibility. V cannot use a remembered preference, inferred pattern, or LLM-generated summary to override DBS, right-to-work, safeguarding, QTS, SIA, identity, or legal eligibility requirements.
+
+Worker private memory and employer-facing reputation are separate by design. A worker's private goals, anxieties, disliked environments, or personal constraints must not silently become employer-facing reputation data or exclusion logic. If a memory affects matching or visibility, the worker must be able to inspect, correct, delete, or mark it private.
+
+Every durable memory has an owner, source, timestamp, visibility level, edit/delete path, and audit trail. Important inferred memories are confirmed with the relevant user before V relies on them operationally. Phase 0 stores structured basics and collects clean signals; Phase 1 uses memory in briefings, intake defaults, offer ranking, and explanations; Phase 2 turns accumulated memory into graph-based fit intelligence across sites, workers, organisations, and sectors.
+
+### 7.10 The Fit Graph — Employer and Site Intelligence
 
 Over time, V builds a rich model of which workers fit which environments:
 
@@ -397,13 +413,15 @@ Repeat booking rate and employer re-request signals
 
 This intelligence compounds. A worker who has done 40 shifts across 12 schools in a MAT has a fit graph that makes them significantly easier to place — and their Passport more valuable — than a worker who just joined. The system rewards reliability, which improves supply-side quality for employers, which improves the product for everyone.
 
-### 7.10 Pre-shift Intelligence — The Briefed Worker Advantage
+The Fit Graph is the mature network expression of Viora Memory. It starts in Phase 0 as explicit preferences, site instructions, booking outcomes, and feedback. In Phase 1, those memory signals begin improving briefings, intake defaults, ranking, and explanations. In Phase 2, the Fit Graph becomes a graph-based intelligence layer connecting workers, sites, roles, organisations, feedback, reliability, travel patterns, and acceptance behaviour.
+
+### 7.11 Pre-shift Intelligence — The Briefed Worker Advantage
 
 The briefing V sends before a shift is a flagship differentiator no traditional agency and no first-generation digital staffing app provides. A supply teacher who arrives knowing the lesson plan, the class's behaviour context, the school's safeguarding lead name, and what previous supply workers found challenging at that school is materially better prepared than one who arrives cold. The information already exists inside the school — in their MIS, in the heads of their office staff — but no platform has ever surfaced it to the worker before arrival.
 
 This feature directly improves four metrics simultaneously: post-shift employer ratings (better-prepared workers perform better), repeat booking rates (workers who perform well get re-requested), worker confidence and satisfaction (less anxiety before an unfamiliar environment), and fit graph data quality (more accurate feedback when the worker had a fair chance to prepare). No competitor can replicate this without a deep MIS integration story — which Viora builds as a moat, not an afterthought.
 
-### 7.11 Proactive V — The Agent That Never Sleeps
+### 7.12 Proactive V — The Agent That Never Sleeps
 
 V is not a chatbot waiting for input. V monitors every open booking, every pending confirmation, every compliance expiry, and every worker who has gone quiet — and acts first.
 
@@ -474,6 +492,18 @@ This is the closest Viora gets to replacing a human account manager — not by m
 - **FR-A-003:** Compliance management — document review, verification workflow, expiry alerts, and eligibility override with audit trail.
 - **FR-A-004:** Audit logs — all system and agent actions logged with actor, timestamp, decision inputs, and outcome. Immutable.
 - **FR-A-005:** Human override — any AI-generated recommendation or autonomous action can be reviewed and overridden by an authorised human. Override is logged.
+
+### 8.9 Viora Memory
+
+- **FR-MEM-001:** Organisation memory — V stores organisation and site defaults such as booking patterns, rate preferences, preferred and blocked workers, escalation preferences, approval patterns, site instructions, and role or class context.
+- **FR-MEM-002:** Worker memory — V stores worker-controlled preferences such as commute tolerance, preferred roles, pay expectations, shift patterns, site preferences, career goals, private notes, and auto-accept rules.
+- **FR-MEM-003:** Memory-assisted intake — V uses confirmed organisation memory to reduce repeated questions during booking intake, while still confirming any high-impact inferred default before broadcast.
+- **FR-MEM-004:** Memory-assisted matching — V uses confirmed memory signals in ranking, offer explanations, and pre-shift briefings, but memory must never override deterministic compliance gates.
+- **FR-MEM-005:** Pre-shift briefing from memory — V generates worker briefings from site memory, booking context, school-provided knowledge, and prior worker feedback where visibility rules allow.
+- **FR-MEM-006:** Memory controls — employers and workers can view, edit, delete, or mark memories as private according to their ownership and visibility rights.
+- **FR-MEM-007:** Inference confirmation — important inferred memories are presented to the relevant user for confirmation before V relies on them operationally.
+- **FR-MEM-008:** Memory governance — every durable memory records owner, source, timestamp, visibility, edit/delete path, and audit trail.
+
 ## 9. Trust, Security, Safety, and Compliance
 
 ### 9.1 Data Security Baseline
@@ -755,7 +785,7 @@ WhatsApp voice note intake
 
 Worker auto-accept rules
 
-Employer memory and preference learning
+Viora Memory v0 — collect structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals; no full graph engine in Phase 0
 
 Post-shift feedback collection (with incident-report gate for negative ratings)
 
@@ -783,6 +813,8 @@ Security vertical (Phase 1)
 
 Viora Connect — agency supply API (Phase 2)
 
+Full graph-based Viora Memory and Fit Graph intelligence (Phase 2)
+
 Full automated compliance verification APIs (Phase 1–2)
 
 Multi-vertical cross-sector worker utilisation (Phase 2)
@@ -793,9 +825,9 @@ L4 full autonomy (Phase 3)
 
 | Phase | Focus | Headline Outcome | Key Features |
 | --- | --- | --- | --- |
-| **Phase 0** (0–6 months) | Conversational MVP, education pilot | Prove employers talk to V instead of filling in a form; prove swipe deck outconverts list view; prove agentic matching reduces time-to-fill | V text/WhatsApp intake, booking engine, candidate ranking, worker feed, check-in/out, timesheets, invoices, admin console |
-| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, L3 autonomy, self-healing v2, pre-shift MIS integration (SIMS / Arbor / Bromcom), bidirectional ratings with incident-report gate, employer knowledge base builder, worker onboarding via V call, reference collection via V call, calendar sync (Google / Outlook iCal), proactive V full rollout (calling, voice notes, WhatsApp) |
-| **Phase 2** (18–30 months) | Viora Connect + Sector expansion + Agentic intelligence | Agency supply integrated as on-ramp; true-cost-of-cover reporting as market standard; third vertical live; platform intelligence compounds | Viora Connect API, cross-sector utilisation engine, agency dashboard, true-cost benchmarking, additional vertical (care, hospitality, or events), demand forecasting (V predicts cover gaps from school absence patterns and pre-qualifies workers), term-block booking (season-length placements at reduced daily rate), AI-driven DBS Update Service monitoring with V-handled renewal conversations, training marketplace (V identifies skills gaps in worker pool and surfaces CPD), proactive worker retention (V outreach before workers go inactive) |
+| **Phase 0** (0–6 months) | Conversational MVP, education pilot | Prove employers talk to V instead of filling in a form; prove swipe deck outconverts list view; prove agentic matching reduces time-to-fill; start collecting clean memory signals | V text/WhatsApp intake, booking engine, candidate ranking, worker feed, check-in/out, timesheets, invoices, admin console, Viora Memory v0 signal capture |
+| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched; memory improves intake, briefings, ranking, and repeat booking | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, L3 autonomy, self-healing v2, pre-shift MIS integration (SIMS / Arbor / Bromcom), bidirectional ratings with incident-report gate, employer knowledge base builder, worker onboarding via V call, reference collection via V call, calendar sync (Google / Outlook iCal), proactive V full rollout (calling, voice notes, WhatsApp), memory controls, Fit Graph v1 signals |
+| **Phase 2** (18–30 months) | Viora Connect + Sector expansion + Agentic intelligence | Agency supply integrated as on-ramp; true-cost-of-cover reporting as market standard; third vertical live; platform intelligence compounds through graph-based memory | Viora Connect API, cross-sector utilisation engine, agency dashboard, true-cost benchmarking, additional vertical (care, hospitality, or events), graph-based Fit Graph, demand forecasting (V predicts cover gaps from school absence patterns and pre-qualifies workers), term-block booking (season-length placements at reduced daily rate), AI-driven DBS Update Service monitoring with V-handled renewal conversations, training marketplace (V identifies skills gaps in worker pool and surfaces CPD), proactive worker retention (V outreach before workers go inactive) |
 | **Phase 3** (30+ months) | Full autonomy + Platform dominance | V trusted for L4 autonomous coordination; Viora positioned as the default infrastructure flexible work runs on | L4 autonomy, full marketplace liquidity, enterprise MAT and multi-site contracts, regulatory relationships, international expansion assessment |
 
 ## 14. Success Metrics
@@ -872,6 +904,20 @@ Fraud flags reviewed and resolved
 V explanation usefulness rating (from employer and worker feedback)
 
 Acceptance probability calibration — predicted vs. actual acceptance rate
+
+### 14.6 Memory Metrics (Phase 1+)
+
+Repeat employer questions — should decrease as organisation memory covers site defaults, rate patterns, and booking preferences
+
+Worker offer acceptance rate — should improve when worker memory influences ranking and explanations
+
+Pre-shift confidence rating — workers should report higher confidence after receiving memory-backed briefings
+
+Repeat booking rate — should improve as V learns which workers fit which sites and roles
+
+Memory correction rate — tracked to ensure inferred memories are reviewable and improving over time
+
+Memory control usage — employers and workers can view, edit, delete, or mark memories private
 
 ## 15. Business Model
 

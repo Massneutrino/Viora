@@ -4,11 +4,12 @@ Maps to the 17 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
 
 Legend: ✅ done · 🔜 in progress · 🔲 todo
 
-**Last reviewed:** 2026-06-23
+**Last reviewed:** 2026-06-25
 
 **Remaining for Phase 0 close-out (4 items):** Guardrails enforcement (2) · WhatsApp channel (2)
 
 **Recent fixes (review follow-up):**
+- Demo sandbox in admin console - deterministic scenarios for single-loop booking, all-avatar market day, compliance unlock and replacement recovery; API endpoints live under `/v1/admin/sandbox/*` and sandbox data is tagged with `[sandbox:<runId>]`
 - Mobile swipe deck calls accept/decline API — `apps/mobile/app/index.tsx`
 - Worker web preview for browser testing — `apps/worker-web` at http://localhost:6102 (same API flow as mobile; `demo-worker`)
 - Offer decline verifies `offer.workerId` — `apps/api/src/routes/workers.ts`
@@ -19,7 +20,31 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - New `@viora/ui` package — V pixel-sphere identity (3D chrome, V↔waveform morph, cobalt accent) + responsive `AppShell` (desktop side-rail / mobile bottom-nav, sphere hero, dot grid, Web/Phone preview toggle); both web apps adopt it. Light/cool-white theme.
 - Worker offer endpoint returns a flat UI DTO (role/site/payPerDay/travel/briefing) — `apps/api/src/routes/workers.ts`; demo `BookingRequest`+`Offer` seeded for `demo-worker` so the deck is populated out of the box.
 - Worker Passport tab: document/CV upload (base64) + compliance status — `apps/worker-web`; admin verify/reject UI — `apps/admin/src/app/compliance-queue.tsx`.
-- Local dev ports pinned (API 6200, web 6100, admin 6101, worker 6102, mobile Metro 8100).
+- Local dev ports pinned (API 6200, public site 6103, web 6100, admin 6101, worker 6102, mobile Metro 8100).
+
+**Profile, Settings & Account hub (this iteration):**
+- Shared settings primitives in `@viora/ui` — `SectionCard`, `SettingRow`, `ToggleRow`, `EditableField`, `ChipsField`, `AccountRow`, `Avatar` (`packages/ui/src/components/Settings.tsx`); reused by both web apps.
+- Worker **Profile** tab is now an Account hub (identity header + reliability, editable personal details & work preferences, link to Passport for compliance/docs, notifications, switch-account/sign-out) — `apps/worker-web/src/app/page.tsx`. Compliance stays in the Passport tab (matches `Worker` vs `Passport` data split).
+- Employer **Settings** nav item — org profile (editable), sites + team (read-only), automation guardrails (editable), account section — `apps/web/src/app/page.tsx`.
+- New endpoints: `GET/PATCH /v1/workers/:id` (profile + worker guardrail), `GET/PATCH /v1/organisations/:id` + `PATCH /v1/organisations/:id/guardrail` (`apps/api/src/routes/workers.ts`, `apps/api/src/routes/organisations.ts`). All PATCHes write `AuditEvent` rows. No schema change — fields already on `Worker`/`Organisation`/`GuardrailPolicy`.
+- Identity is resolved via `?workerId=` / `?orgId=` (interim demo bypass; the auth-agent's session/switcher replaces switch-account/sign-out callbacks).
+
+**Conversational marketing site (this iteration):**
+- The public site (`apps/site`, port 6103) hero is now a **live V conversation**: tap/talk to the sphere and V runs a short directed intake (org vs worker → required details → callback/waitlist). Type **or** voice (Web Speech API, progressive enhancement); the manual forms remain as a one-tap fallback (`#book-pilot`).
+- New endpoint `POST /v1/pilot/chat` — `createLLMClient().structured()` extracts fields + reply; **readiness/intent are computed deterministically server-side** (never LLM-decided), and a lead is only persisted on `readyToCapture && consent`. Reuses a shared `createPilotLead()` helper with `POST /v1/pilot/leads`; every capture writes an `AuditEvent` (`source: "chat"`). Degrades to the manual form if the LLM is unavailable.
+- GDPR: consent gate + `/privacy` notice + footer added; the sphere now drives `WaveState` from the conversation (rest→listening→processing→speaking→confirmed) instead of a blind timer. Removed the demo cards/timeline (and the broken `\2713` checkmark). `apps/site/src/app/{page,layout,v-conversation,privacy/page}.tsx`, `globals.css`, `routes/pilot.ts`.
+- ⚠️ **Scope flag:** this is a pilot-acquisition surface, outside the 17 `PHASE_0_MUST_HAVE` items — additive, not a core Phase 0 deliverable.
+
+**Voice-first site + waitlist→approval + Viora Memory (this iteration):**
+- Site hero is now **voice-first**: heading + an animated typewriter subheading (cycling real asks), V as the centerpiece, a **Speak with V** CTA that opens an inline voice conversation (speech-to-text in, `speechSynthesis` out, with a "Type instead" fallback and a typed-mode fallback when the browser lacks `SpeechRecognition`). `apps/site/src/app/{page,v-conversation}.tsx`.
+- **Quick-form modal** (org/worker toggle) replaces the full-screen dual forms — `apps/site/src/app/quick-form.tsx`; opened from a quiet link / the conversation / the degraded path.
+- **Registration → waitlist**: `apps/site/src/app/register/page.tsx` (Sign-in target) posts to `/v1/pilot/leads`.
+- **Ops-dash approval mints accounts**: `POST /v1/admin/pilot/leads/:id/approve` (`apps/api/src/routes/admin.ts`) upserts the real `Organisation` (+Site+GuardrailPolicy+EmployerUser) or `Worker` (+Passport+GuardrailPolicy) with deterministic ids (idempotent), flips `PilotLead.status` to `approved`, writes an `AuditEvent`, and returns a `?orgId=`/`?workerId=` access link into the employer/worker app. Approve UI lives in the admin Pilot leads tab (`apps/admin/src/app/{sections,pilot-approve}.tsx`). Interim access until real auth lands.
+- **Viora Memory** presented as a shipped capability: interactive "What V remembers" section (`apps/site/src/app/memory-demo.tsx`, mirrors `MemoryEntry` kinds/visibility/source) with view/visibility/forget controls and an explicit "never overrides compliance" guarantee; V also surfaces a "V will remember: …" chip in conversation (optional `remembered` on the chat turn — `apps/api/src/routes/pilot.ts`).
+- **Memory stack v0 (backend)**: `MemoryEntry` + `MemoryEdge` schema; `createMemoryAgent()` (`packages/agents/src/memory-agent.ts`) captures inferred signals on intake/booking paths; CRUD at `GET/POST/PATCH/DELETE /v1/{organisations|workers}/:id/memory` with `AuditEvent` rows (`apps/api/src/routes/memory.ts`); admin review at `GET /v1/admin/memory/pending` + `PATCH /v1/admin/memory/:memoryId`.
+- **Admin Memory lab + review**: Dev tools → Memory lab (create/edit/forget for demo orgs/workers); Memory review queue for `pending_confirmation` entries — `apps/admin/src/app/{memory-lab,memory-review}.tsx`.
+- **Smoke test**: `npm run test:memory` (`scripts/smoke-memory-stack.mjs`).
+- Env: API builds access links from `WEB_URL` / `WORKER_WEB_URL` (default localhost 6100/6102).
 
 ---
 
@@ -61,6 +86,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 | Surface | URL | Package |
 |---------|-----|---------|
+| Public website | http://localhost:6103 | `@viora/site` |
 | Employer (Tell V) | http://localhost:6100 | `@viora/web` |
 | Admin console | http://localhost:6101 | `@viora/admin` |
 | Worker preview (temp person) | http://localhost:6102 | `@viora/worker-web` |
@@ -96,7 +122,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## Audit Logging
 
-- 🔄 Write `AuditEvent` rows in all agent action paths — covered: intake, compliance upload/verify/reject, offer accept/decline, check-in/out, admin bookings, timesheets, invoice generate; **gaps:** invoice CSV export (`GET /v1/admin/invoices/:id/export`) and `estimateFillProbability()` (updates `BookingRequest` with no audit row)
+- 🔄 Write `AuditEvent` rows in all agent action paths — covered: intake, compliance upload/verify/reject, offer accept/decline, check-in/out, admin bookings, timesheets, invoice generate, worker profile update, organisation profile/guardrail update; **gaps:** invoice CSV export (`GET /v1/admin/invoices/:id/export`) and `estimateFillProbability()` (updates `BookingRequest` with no audit row)
 - ✅ Wire admin audit log panel to live `GET /v1/admin/audit`
 
 ## Human Override
@@ -109,6 +135,9 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 - ✅ Wire unfilled shifts panel to live `GET /v1/admin/ops/unfilled` (`packages/agents/src/ops-agent.ts`)
 - ✅ Wire market health panel to live `GET /v1/admin/ops/market-health` (`packages/agents/src/ops-agent.ts`)
+- ✅ Demo sandbox panel - run/reset deterministic end-to-end scenarios and inspect timeline, entity counts and avatar coverage (`apps/admin/src/app/sandbox-panel.tsx`, `apps/api/src/routes/sandbox.ts`)
+- ✅ Memory lab + review panels — create/edit/forget demo memories and confirm `pending_confirmation` entries (`apps/admin/src/app/{memory-lab,memory-review}.tsx`, `GET /v1/admin/memory/pending`)
+- ✅ Pilot leads tab — list waitlist leads and **Approve & mint** into real org/worker accounts (`apps/admin/src/app/pilot-approve.tsx`, `POST /v1/admin/pilot/leads/:id/approve`)
 - 🔄 Admin mutation UI — compliance verify/reject now interactive (✅); approve timesheets, broadcast, and assign/cancel still API-only (post-MVP polish)
 
 ## WhatsApp Channel
@@ -133,4 +162,4 @@ Ask in chat: **"Review TODO changes"** — after editing this file or before a c
 
 The agent will: diff this file → trace each newly ✅/🔄 item to code → run `npm run typecheck` + `npm run build` → smoke-test the API → return verified / overstated / needs-review / suggested corrections.
 
-**Prereqs:** `npm run db:migrate && npm run db:seed`, then `npm run dev` (api :6200, employer :6100, admin :6101, worker preview :6102, mobile Metro :8100; API loads `.env`). If port 6200 shows DB disconnected, kill the old API process and restart.
+**Prereqs:** `npm run db:migrate && npm run db:seed`, then `npm run dev` (api :6200, employer :6100, admin :6101, worker preview :6102, public site :6103, mobile Metro :8100; API loads `.env`). If port 6200 shows DB disconnected, kill the old API process and restart.
