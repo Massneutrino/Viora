@@ -21,6 +21,11 @@ type StructuredOpts = {
   maxTokens?: number;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type GoogleGenerateContentResult = { response: any };
+
+const LLM_CALL_TIMEOUT_MS = 15_000;
+
 function getLlmConfig(): { provider: string; model: string } {
   const provider = process.env.AI_PROVIDER ?? "anthropic";
   const defaultModel = provider === "google" ? "gemini-2.5-flash-lite" : "claude-opus-4-8";
@@ -58,10 +63,46 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableGoogleError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
+function getErrorStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
   const status = "status" in err ? (err as { status?: number }).status : undefined;
+  if (typeof status === "number") return status;
+  const statusCode = "statusCode" in err ? (err as { statusCode?: number }).statusCode : undefined;
+  if (typeof statusCode === "number") return statusCode;
+  const message = err instanceof Error ? err.message : String(err);
+  const match = message.match(/\b(429|503)\b/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function isRetryableLlmError(err: unknown): boolean {
+  const status = getErrorStatus(err);
   return status === 503 || status === 429;
+}
+
+async function withTimeout<T>(operation: () => Promise<T>): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("LLM call timed out")), LLM_CALL_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function retryLlmCall<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await withTimeout(operation);
+    } catch (err) {
+      if (!isRetryableLlmError(err) || attempt === 2) throw err;
+      await sleep(750 * (attempt + 1));
+    }
+  }
+  throw new Error("LLM call failed after retries");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,28 +166,32 @@ function buildAnthropicClient(model: string): LLMClient {
   const anthropic = new Anthropic({ apiKey });
   return {
     async complete({ system, prompt, maxTokens = 1024 }) {
-      const res = await anthropic.messages.create({
-        model,
-        max_tokens: maxTokens,
-        thinking: { type: "adaptive" },
-        system,
-        messages: [{ role: "user", content: prompt }],
-      });
+      const res = await retryLlmCall(() =>
+        anthropic.messages.create({
+          model,
+          max_tokens: maxTokens,
+          thinking: { type: "adaptive" },
+          system,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      );
       return res.content.find((b) => b.type === "text")?.text ?? "";
     },
 
     async structured<T>(opts: StructuredOpts): Promise<T> {
       const { system, prompt, toolName, toolDescription, schema, maxTokens = 2048 } = opts;
-      const res = await anthropic.messages.create({
-        model,
-        max_tokens: maxTokens,
-        thinking: { type: "adaptive" },
-        system,
-        messages: [{ role: "user", content: prompt }],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        tools: [{ name: toolName, description: toolDescription, input_schema: schema as any }],
-        tool_choice: { type: "tool", name: toolName },
-      });
+      const res = await retryLlmCall(() =>
+        anthropic.messages.create({
+          model,
+          max_tokens: maxTokens,
+          thinking: { type: "adaptive" },
+          system,
+          messages: [{ role: "user", content: prompt }],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tools: [{ name: toolName, description: toolDescription, input_schema: schema as any }],
+          tool_choice: { type: "tool", name: toolName },
+        }),
+      );
       const tool = res.content.find((b) => b.type === "tool_use");
       if (!tool || tool.type !== "tool_use") throw new Error(`${toolName}: no tool call returned`);
       return tool.input as T;
@@ -165,10 +210,12 @@ async function buildGoogleClient(model: string): Promise<LLMClient> {
   return {
     async complete({ system, prompt, maxTokens = 1024 }) {
       const gemini = genAI.getGenerativeModel({ model, systemInstruction: system });
-      const res = await gemini.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: googleTextGenerationConfig(model, maxTokens),
-      });
+      const res = await retryLlmCall<GoogleGenerateContentResult>(() =>
+        gemini.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: googleTextGenerationConfig(model, maxTokens),
+        }),
+      );
       return extractGoogleText(res.response);
     },
 
@@ -183,25 +230,19 @@ async function buildGoogleClient(model: string): Promise<LLMClient> {
 
       let lastError: Error | undefined;
       for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const res = await gemini.generateContent({
+        const res = await retryLlmCall<GoogleGenerateContentResult>(() =>
+          gemini.generateContent({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             generationConfig: googleStructuredGenerationConfig(model, maxTokens),
-          });
-          const call = extractGoogleFunctionCall(res.response);
-          if (call) return call.args as T;
+          }),
+        );
+        const call = extractGoogleFunctionCall(res.response);
+        if (call) return call.args as T;
 
-          const parsed = parseJsonFromGoogleText(extractGoogleText(res.response));
-          if (parsed) return parsed as T;
+        const parsed = parseJsonFromGoogleText(extractGoogleText(res.response));
+        if (parsed) return parsed as T;
 
-          lastError = new Error(`${toolName}: no function call returned`);
-        } catch (err) {
-          if (isRetryableGoogleError(err) && attempt < 2) {
-            await sleep(750 * (attempt + 1));
-            continue;
-          }
-          throw err;
-        }
+        lastError = new Error(`${toolName}: no function call returned`);
 
         if (attempt < 2) await sleep(500 * (attempt + 1));
       }

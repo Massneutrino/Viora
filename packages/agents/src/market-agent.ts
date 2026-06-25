@@ -47,6 +47,19 @@ export function createMarketAgent(
         },
         include: { passport: true },
       });
+      const workerIds = workers.map((worker) => worker.id);
+      const memoryEdges = await db.memoryEdge.findMany({
+        where: {
+          ownerType: "worker",
+          ownerId: { in: workerIds },
+          status: "active",
+          visibility: { in: ["operational", "shared"] },
+          OR: [
+            { toType: "site", toId: site.id },
+            { toType: "role", toId: bookingRequest.roleType },
+          ],
+        },
+      });
 
       type Candidate = {
         workerId: string;
@@ -81,13 +94,24 @@ export function createMarketAgent(
 
         const commuteScore = Math.max(0, Math.min(1, 1 - distanceKm / radiusKm));
         const reliabilityScore = worker.passport?.reliabilityScore ?? 0.5;
-        const finalScore = reliabilityScore * 0.5 + commuteScore * 0.3 + 0.2;
+        const workerMemoryEdges = memoryEdges.filter((edge) => edge.ownerId === worker.id);
+        const memoryScore = Math.max(
+          -1,
+          Math.min(1, workerMemoryEdges.reduce((sum, edge) => sum + edge.weight * edge.confidence, 0)),
+        );
+        const normalizedMemoryScore = (memoryScore + 1) / 2;
+        const finalScore =
+          reliabilityScore * 0.45 + commuteScore * 0.25 + normalizedMemoryScore * 0.2 + 0.1;
+        const memoryReason =
+          workerMemoryEdges.length > 0
+            ? `, memory fit ${normalizedMemoryScore.toFixed(2)}`
+            : "";
 
         candidates.push({
           workerId: worker.id,
           score: finalScore,
-          reasoning: `${distanceKm.toFixed(1)} km away, reliability score ${reliabilityScore.toFixed(2)}`,
-          scores: { commuteKm: distanceKm, commuteScore, reliabilityScore, finalScore },
+          reasoning: `${distanceKm.toFixed(1)} km away, reliability score ${reliabilityScore.toFixed(2)}${memoryReason}`,
+          scores: { commuteKm: distanceKm, commuteScore, reliabilityScore, memoryScore, finalScore },
         });
       }
 
@@ -134,6 +158,7 @@ export function createMarketAgent(
             matchCount: matches.length,
             workerPool: workers.length,
             topWorkerIds: top.slice(0, 5).map((c) => c.workerId),
+            memoryEdges: memoryEdges.length,
           },
           outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
         },

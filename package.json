@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "turbo dev",
     "dev:api": "npm run dev --workspace @viora/api",
+    "dev:site": "npm run dev --workspace @viora/site",
     "dev:web": "npm run dev --workspace @viora/web",
     "dev:admin": "npm run dev --workspace @viora/admin",
     "dev:worker-web": "npm run dev --workspace @viora/worker-web",
@@ -18,6 +19,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
+    "test:memory": "node scripts/smoke-memory-stack.mjs",
     "db:generate": "npm run generate --workspace @viora/database",
     "db:migrate": "npm run migrate --workspace @viora/database",
     "db:seed": "npm run seed --workspace @viora/database",

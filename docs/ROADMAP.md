@@ -6,6 +6,12 @@
 
 See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 
+**Demo/testing support**: Admin includes a deterministic sandbox for replaying the Phase 0 loop with seeded avatars, clean reset, audit timeline and scenario coverage.
+
+**Pilot acquisition (adjunct, not a core Phase 0 item)**: the public site (`apps/site`) leads with a live V conversation that qualifies organisations vs workers and captures pilot/waitlist leads (`POST /v1/pilot/chat`, consent-gated, audited), with manual forms as fallback.
+
+**Viora Memory v0**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals so V can start reducing repeated questions and improving briefings later.
+
 **Exit criteria** (from `PHASE_0_SUCCESS_METRICS`):
 - ≥ 70% of bookings initiated conversationally
 - ≥ 95% intent accuracy
@@ -29,6 +35,12 @@ Replace manual compliance queue with API integrations: DBS online, Right to Work
 **L3 Autonomy**
 Agent-driven pay negotiation within guardrail bounds. Market Agent proposes a rate; employer and worker guardrails approve or escalate automatically.
 
+**Memory Controls**
+Employer and worker screens show "what V remembers" with view, edit, delete, and private controls. Important inferred memories are confirmed before V relies on them operationally.
+
+**Fit Graph v1**
+Phase 1 starts using confirmed memory signals in intake defaults, pre-shift briefings, offer ranking, and explanations. The goal is fewer repeated employer questions, higher worker offer acceptance, better pre-shift confidence, and improved repeat booking rate.
+
 **Multi-Sector Expansion**
 Open intake and compliance gates for NHS bank shifts and social care alongside education.
 
@@ -43,7 +55,7 @@ Employer subscription tier introduced alongside per-booking margin.
 Agency partner API: third-party agencies can plug their worker pools and credential data into the Viora marketplace. Enables cross-network supply.
 
 **Fit Graph**
-Intelligence layer built from booking history: site preferences, worker reliability, role–site match scores. Improves ranking accuracy and fill probability estimates over time.
+Graph-based intelligence layer built from booking history, organisation memory, worker memory, site preferences, worker reliability, role-site match scores, acceptance behaviour, travel patterns, and feedback. Improves ranking accuracy and fill probability estimates over time.
 
 **Geographic Expansion**
 Move beyond the Phase 0 pilot cluster to additional regions; MAT-level rollout for multi-site organisations.

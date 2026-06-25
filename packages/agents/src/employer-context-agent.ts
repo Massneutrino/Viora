@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@viora/database";
-import type { EmployerContextAgent, MarketAgent, TrustComplianceAgent } from "./types.js";
+import type { EmployerContextAgent, MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
 
 const VIORA_FEE_RATE = 0.15;
 const BOOKABLE_REQUEST_STATUSES = new Set([
@@ -13,6 +13,7 @@ export function createEmployerContextAgent(
   db: PrismaClient,
   compliance: TrustComplianceAgent,
   market?: MarketAgent,
+  memory?: MemoryAgent,
 ): EmployerContextAgent {
   async function auditFailure(
     action: string,
@@ -319,6 +320,29 @@ export function createEmployerContextAgent(
 
         return confirmedBooking;
       });
+
+      if (memory) {
+        await memory.recordOfferOutcome(offerId, "accepted").catch(() => undefined);
+        await memory
+          .rememberFromEvent({
+            ownerType: "organisation",
+            ownerId: bookingRequest.organisationId,
+            subjectType: "booking",
+            subjectId: booking.id,
+            sourceRefType: "Booking",
+            sourceRefId: booking.id,
+            text: `Booking confirmed for ${bookingRequest.roleType} at ${bookingRequest.site.name}. Worker ${workerId} accepted at pay rate ${bookingRequest.payRate}.`,
+            data: {
+              bookingRequestId,
+              offerId,
+              workerId,
+              siteId: bookingRequest.siteId,
+              roleType: bookingRequest.roleType,
+              payRate: bookingRequest.payRate,
+            },
+          })
+          .catch(() => undefined);
+      }
 
       return {
         success: true,

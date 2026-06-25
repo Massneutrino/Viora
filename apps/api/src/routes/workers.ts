@@ -56,6 +56,52 @@ const shiftLocationSchema = z.object({
   longitude: z.number().optional(),
 });
 
+// Account hub: profile fields live on Worker; payFloor/commute live on the
+// worker's GuardrailPolicy. A single PATCH updates both.
+const workerProfileSchema = z
+  .object({
+    firstName: z.string().min(1).max(100).optional(),
+    lastName: z.string().min(1).max(100).optional(),
+    phone: z.string().max(40).nullable().optional(),
+    homeLatitude: z.number().min(-90).max(90).nullable().optional(),
+    homeLongitude: z.number().min(-180).max(180).nullable().optional(),
+    workRadiusKm: z.number().min(0).max(500).nullable().optional(),
+    roleTypes: z.array(z.string().min(1).max(60)).max(20).optional(),
+    payFloor: z.number().min(0).max(10000).nullable().optional(),
+    maxCommuteMinutes: z.number().int().min(0).max(600).nullable().optional(),
+  })
+  .strict();
+
+const WORKER_GUARDRAIL_SELECT = {
+  autonomyLevel: true,
+  payFloor: true,
+  maxCommuteMinutes: true,
+  approvedRoleTypes: true,
+} as const;
+
+const WORKER_PROFILE_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+  phone: true,
+  homeLatitude: true,
+  homeLongitude: true,
+  workRadiusKm: true,
+  roleTypes: true,
+  passport: { select: { reliabilityScore: true } },
+} as const;
+
+type WorkerProfileRow = {
+  passport: { reliabilityScore: number | null } | null;
+  [key: string]: unknown;
+};
+
+/** Flatten the passport's reliability score onto the profile DTO. */
+function toProfileDto({ passport, ...rest }: WorkerProfileRow) {
+  return { ...rest, reliabilityScore: passport?.reliabilityScore ?? null };
+}
+
 export const workerRoutes: FastifyPluginAsync = async (app) => {
   /** GET /v1/workers/:id/offer — next ranked opportunity (swipe deck), flattened for the UI */
   app.get("/:id/offer", async (request, reply) => {
@@ -99,6 +145,92 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
     };
 
     return reply.send({ offer: dto });
+  });
+
+  /** GET /v1/workers/:id — profile + guardrail policy (account hub) */
+  app.get("/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const worker = await app.db.worker.findUnique({
+      where: { id },
+      select: {
+        ...WORKER_PROFILE_SELECT,
+        guardrailPolicy: { select: WORKER_GUARDRAIL_SELECT },
+      },
+    });
+    if (!worker) return reply.code(404).send({ error: "Worker not found." });
+
+    const { guardrailPolicy, ...profile } = worker;
+    return reply.send({ worker: toProfileDto(profile), guardrail: guardrailPolicy ?? null });
+  });
+
+  /** PATCH /v1/workers/:id — update profile fields and/or worker guardrail (payFloor, commute) */
+  app.patch("/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = workerProfileSchema.parse(request.body);
+
+    const existing = await app.db.worker.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: "Worker not found." });
+
+    const { payFloor, maxCommuteMinutes, ...workerFields } = body;
+    const workerData: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(workerFields)) {
+      if (value !== undefined) workerData[key] = value;
+    }
+    const touchesGuardrail = payFloor !== undefined || maxCommuteMinutes !== undefined;
+
+    const result = await app.db.$transaction(async (tx) => {
+      const worker = Object.keys(workerData).length
+        ? await tx.worker.update({
+            where: { id },
+            data: workerData as Prisma.WorkerUpdateInput,
+            select: WORKER_PROFILE_SELECT,
+          })
+        : await tx.worker.findUniqueOrThrow({ where: { id }, select: WORKER_PROFILE_SELECT });
+
+      let guardrail;
+      if (touchesGuardrail) {
+        const gData: Record<string, unknown> = {};
+        if (payFloor !== undefined) gData.payFloor = payFloor;
+        if (maxCommuteMinutes !== undefined) gData.maxCommuteMinutes = maxCommuteMinutes;
+        guardrail = await tx.guardrailPolicy.upsert({
+          where: { workerId: id },
+          update: gData,
+          create: { workerId: id, ...gData },
+          select: WORKER_GUARDRAIL_SELECT,
+        });
+      } else {
+        guardrail = await tx.guardrailPolicy.findUnique({
+          where: { workerId: id },
+          select: WORKER_GUARDRAIL_SELECT,
+        });
+      }
+
+      await writeAuditEvent(tx, {
+        actorType: "user",
+        actorId: id,
+        action: "worker.profile.update",
+        entityType: "Worker",
+        entityId: id,
+        inputs: body as Prisma.InputJsonValue,
+        outputs: { updatedFields: Object.keys(body) } as Prisma.InputJsonValue,
+        outcome: "updated",
+      });
+
+      return { worker, guardrail: guardrail ?? null };
+    });
+
+    await app.agents.memory.rememberFromEvent({
+      ownerType: "worker",
+      ownerId: id,
+      subjectType: "worker",
+      subjectId: id,
+      sourceRefType: "Worker",
+      sourceRefId: id,
+      text: `Worker profile or preference update: ${JSON.stringify(body)}`,
+      data: { updatedFields: Object.keys(body) },
+    }).catch((err) => request.log.warn({ err }, "memory inference failed after worker profile update"));
+
+    return reply.send({ worker: toProfileDto(result.worker), guardrail: result.guardrail });
   });
 
   app.post("/:id/compliance/documents", async (request, reply) => {
@@ -351,6 +483,8 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       outputs: { status: offer.status } as Prisma.InputJsonValue,
       outcome: "declined",
     });
+    await app.agents.memory.recordOfferOutcome(offer.id, "declined")
+      .catch((err) => request.log.warn({ err }, "memory edge update failed after offer decline"));
     return reply.send({ offer, message: "Shift declined." });
   });
 
@@ -385,6 +519,8 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
             outputs: { distanceKm, thresholdKm: CHECK_IN_RADIUS_KM } as Prisma.InputJsonValue,
             outcome: "rejected_too_far",
           });
+          await app.agents.memory.recordShiftEvent(shiftId, "rejected_too_far")
+            .catch((err) => request.log.warn({ err }, "memory edge update failed after check-in rejection"));
           return reply.code(422).send({
             error: "Too far from site.",
             distanceKm: Number(distanceKm.toFixed(3)),
@@ -414,6 +550,8 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       outputs: { status: shift.status, checkedInAt: shift.checkedInAt?.toISOString() ?? null } as Prisma.InputJsonValue,
       outcome: "checked_in",
     });
+    await app.agents.memory.recordShiftEvent(shift.id, "checked_in")
+      .catch((err) => request.log.warn({ err }, "memory edge update failed after check-in"));
 
     return reply.send({ shift });
   });
@@ -471,6 +609,9 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
 
       return { shift, timesheet };
     });
+
+    await app.agents.memory.recordShiftEvent(shift.id, "checked_out")
+      .catch((err) => request.log.warn({ err }, "memory edge update failed after check-out"));
 
     return reply.send({ shift, timesheet });
   });

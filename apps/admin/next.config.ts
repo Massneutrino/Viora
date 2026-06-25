@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@viora/domain"],
+  transpilePackages: ["@viora/domain", "@viora/ui"],
   experimental: {
     externalDir: true,
   },

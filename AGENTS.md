@@ -36,6 +36,7 @@ Full guide: `DEVELOPMENT.md`. This file is the auto-loaded subset for Codex.
 | Service | Port |
 |---|---|
 | API | 6200 |
+| Public site | 6103 |
 | Employer web | 6100 |
 | Admin console | 6101 |
 | Worker web preview | 6102 |

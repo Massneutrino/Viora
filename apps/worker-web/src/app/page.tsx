@@ -1,10 +1,48 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { AppShell, type WaveState, type NavItem, type PreviewMode } from "@viora/ui"
+import { useState, useEffect, useRef, useCallback, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
+import {
+  AppShell, SectionCard, SettingRow, EditableField, ChipsField, ToggleRow, AccountRow, Avatar,
+  type WaveState, type NavItem, type PreviewMode,
+} from "@viora/ui"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200"
-const WORKER_ID = "demo-worker"
+const DEFAULT_WORKER_ID = "demo-worker"
+
+function humanizeRole(s: string): string {
+  return s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+}
+
+type WorkerProfile = {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string | null
+  homeLatitude?: number | null
+  homeLongitude?: number | null
+  workRadiusKm?: number | null
+  roleTypes: string[]
+  reliabilityScore?: number | null
+}
+
+type WorkerGuardrail = {
+  autonomyLevel?: string
+  payFloor?: number | null
+  maxCommuteMinutes?: number | null
+  approvedRoleTypes?: string[]
+} | null
+
+type MemoryEntry = {
+  id: string
+  title: string
+  content: string
+  kind: string
+  visibility: "private" | "operational" | "shared"
+  status: "pending_confirmation" | "active" | "archived" | "deleted"
+  confidence: number
+}
 
 type Offer = {
   id: string
@@ -262,9 +300,202 @@ function PassportTab({ workerId, apiUrl }: { workerId: string; apiUrl: string })
   )
 }
 
+// ── Profile / account hub ──────────────────────────────────────────────────────
+
+function ProfileTab({
+  workerId, apiUrl, onOpenPassport, onSwitchAccount, onSignOut,
+}: {
+  workerId: string
+  apiUrl: string
+  onOpenPassport: () => void
+  onSwitchAccount: () => void
+  onSignOut: () => void
+}) {
+  const [profile, setProfile] = useState<WorkerProfile | null>(null)
+  const [guardrail, setGuardrail] = useState<WorkerGuardrail>(null)
+  const [memories, setMemories] = useState<MemoryEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [shiftAlerts, setShiftAlerts] = useState(true)
+  const [sounds, setSounds] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setProfile(data.worker)
+        setGuardrail(data.guardrail)
+      } else {
+        setProfile(null)
+      }
+      const memoryRes = await fetch(`${apiUrl}/v1/workers/${workerId}/memory`)
+      if (memoryRes.ok) {
+        const memoryData = await memoryRes.json()
+        setMemories(memoryData.memories ?? [])
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [workerId, apiUrl])
+
+  useEffect(() => { load() }, [load])
+
+  // Single PATCH endpoint persists both Worker fields and the worker guardrail.
+  const patch = useCallback(async (body: Record<string, unknown>) => {
+    const res = await fetch(`${apiUrl}/v1/workers/${workerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) { alert("Could not save — please try again."); throw new Error("save failed") }
+    const data = await res.json()
+    setProfile(data.worker)
+    setGuardrail(data.guardrail)
+  }, [workerId, apiUrl])
+
+  const saveNumber = (key: string) => async (next: string) => {
+    if (next === "") return patch({ [key]: null })
+    const n = Number(next)
+    if (Number.isNaN(n)) { alert("Please enter a number."); throw new Error("nan") }
+    return patch({ [key]: n })
+  }
+
+  const addMemory = useCallback(async () => {
+    const title = window.prompt("Memory title")
+    if (!title) return
+    const content = window.prompt("What should V remember?")
+    if (!content) return
+    const res = await fetch(`${apiUrl}/v1/workers/${workerId}/memory`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "preference", title, content, visibility: "private" }),
+    })
+    if (!res.ok) { alert("Could not save memory."); return }
+    const data = await res.json()
+    setMemories(prev => [data.memory, ...prev])
+  }, [apiUrl, workerId])
+
+  const patchMemory = useCallback(async (memoryId: string, body: Record<string, unknown>) => {
+    const res = await fetch(`${apiUrl}/v1/workers/${workerId}/memory/${memoryId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) { alert("Could not update memory."); return }
+    const data = await res.json()
+    setMemories(prev => prev.map(m => m.id === memoryId ? data.memory : m))
+  }, [apiUrl, workerId])
+
+  const deleteMemory = useCallback(async (memoryId: string) => {
+    if (!window.confirm("Delete this memory?")) return
+    const res = await fetch(`${apiUrl}/v1/workers/${workerId}/memory/${memoryId}`, { method: "DELETE" })
+    if (!res.ok) { alert("Could not delete memory."); return }
+    setMemories(prev => prev.filter(m => m.id !== memoryId))
+  }, [apiUrl, workerId])
+
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading profile…</div>
+  }
+  if (!profile) {
+    return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Profile unavailable.</div>
+  }
+
+  const name = `${profile.firstName} ${profile.lastName}`.trim()
+  const home = profile.homeLatitude != null && profile.homeLongitude != null
+    ? `${profile.homeLatitude}, ${profile.homeLongitude}`
+    : ""
+
+  return (
+    <div style={{ padding: "8px 20px 24px", display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 460, margin: "0 auto" }}>
+      <div style={{ background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 16, padding: 16, display: "flex", alignItems: "center", gap: 14 }}>
+        <Avatar name={name} size={52} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p style={{ color: "var(--text)", fontSize: 16, fontWeight: 700, margin: 0 }}>{name}</p>
+          <p style={{ color: "var(--muted)", fontSize: 12, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile.email}</p>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <p style={{ color: "var(--accent)", fontSize: 18, fontWeight: 700, margin: 0 }}>★ {profile.reliabilityScore?.toFixed(1) ?? "—"}</p>
+          <p style={{ color: "var(--faint)", fontSize: 9, margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>reliability</p>
+        </div>
+      </div>
+
+      <SectionCard title="Personal details">
+        <EditableField label="Phone" value={profile.phone} placeholder="Add a phone number" onSave={(v) => patch({ phone: v === "" ? null : v })} />
+        <EditableField
+          label="Home location (lat, lng)" value={home} placeholder="Add coordinates"
+          onSave={async (v) => {
+            if (v === "") return patch({ homeLatitude: null, homeLongitude: null })
+            const [a, b] = v.split(",").map(s => s.trim())
+            const lat = Number(a), lng = Number(b)
+            if (Number.isNaN(lat) || Number.isNaN(lng)) { alert("Use format: latitude, longitude"); throw new Error("bad coords") }
+            return patch({ homeLatitude: lat, homeLongitude: lng })
+          }}
+        />
+        <EditableField label="Work radius" type="number" value={profile.workRadiusKm} suffix="km" placeholder="Set radius" onSave={saveNumber("workRadiusKm")} />
+      </SectionCard>
+
+      <SectionCard title="Work preferences" hint="What V uses to match you to shifts.">
+        <ChipsField label="Roles you cover" values={profile.roleTypes} format={humanizeRole} placeholder="No roles yet" onSave={(v) => patch({ roleTypes: v })} />
+        <EditableField label="Minimum day rate" type="number" value={guardrail?.payFloor ?? null} placeholder="No floor set" format={(v) => `£${v}`} onSave={saveNumber("payFloor")} />
+        <EditableField label="Max commute" type="number" value={guardrail?.maxCommuteMinutes ?? null} suffix="min" placeholder="No limit" onSave={saveNumber("maxCommuteMinutes")} />
+      </SectionCard>
+
+      <SectionCard title="What V remembers about me" hint="Private memories stay worker-side; operational memories can shape matching.">
+        {memories.length ? memories.map(memory => (
+          <div key={memory.id} style={{ padding: "13px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div>
+              <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>{memory.title}</p>
+              <p style={{ color: "var(--muted)", fontSize: 11, margin: "2px 0 0", lineHeight: 1.4 }}>{memory.content}</p>
+              <p style={{ color: memory.visibility === "private" ? "var(--accent)" : "var(--faint)", fontSize: 10, margin: "5px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{memory.visibility} · {memory.status}</p>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {memory.status === "pending_confirmation" && (
+                <button onClick={() => void patchMemory(memory.id, { status: "active" })} style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+              )}
+              <button onClick={() => void patchMemory(memory.id, { visibility: memory.visibility === "private" ? "operational" : "private" })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>{memory.visibility === "private" ? "Use in matching" : "Make private"}</button>
+              <button onClick={() => {
+                const content = window.prompt("Update memory", memory.content)
+                if (content) void patchMemory(memory.id, { content })
+              }} style={{ border: "none", background: "transparent", color: "var(--muted)", fontSize: 11, cursor: "pointer" }}>Edit</button>
+              <button onClick={() => void deleteMemory(memory.id)} style={{ border: "none", background: "transparent", color: "#b42318", fontSize: 11, cursor: "pointer" }}>Delete</button>
+            </div>
+          </div>
+        )) : <SettingRow label="No memories yet" sublabel="V will learn from your choices and confirmed preferences." />}
+        <AccountRow label="Add memory" sublabel="Tell V something useful for future shifts" onClick={() => void addMemory()} />
+      </SectionCard>
+
+      <SectionCard title="Compliance">
+        <AccountRow label="Compliance & documents" sublabel="DBS, Right to Work, safeguarding, QTS" onClick={onOpenPassport} />
+      </SectionCard>
+
+      <SectionCard title="Notifications">
+        <ToggleRow label="Shift alerts" sublabel="Notify me when V finds a match" checked={shiftAlerts} onChange={setShiftAlerts} />
+        <ToggleRow label="Sounds" sublabel="Audio cues for new offers" checked={sounds} onChange={setSounds} />
+      </SectionCard>
+
+      <SectionCard title="Account">
+        <AccountRow label="Switch account" sublabel={`Signed in as ${name}`} onClick={onSwitchAccount} />
+        <AccountRow label="Sign out" danger onClick={onSignOut} />
+      </SectionCard>
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WorkerApp() {
+  return (
+    <Suspense fallback={null}>
+      <WorkerAppInner />
+    </Suspense>
+  )
+}
+
+function WorkerAppInner() {
+  const searchParams = useSearchParams()
+  const workerId = searchParams.get("workerId") ?? DEFAULT_WORKER_ID
+
   const [offer, setOffer] = useState<Offer | null>(null)
   const [loading, setLoading] = useState(false)
   const [acting, setActing] = useState(false)
@@ -278,7 +509,7 @@ export default function WorkerApp() {
     setLoading(true)
     setMessage("")
     try {
-      const res = await fetch(`${API_URL}/v1/workers/${WORKER_ID}/offer`)
+      const res = await fetch(`${API_URL}/v1/workers/${workerId}/offer`)
       const data = await res.json()
       setOffer(data.offer ?? null)
     } catch {
@@ -286,7 +517,12 @@ export default function WorkerApp() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [workerId])
+
+  useEffect(() => {
+    setOffer(null)
+    setMessage("")
+  }, [workerId])
 
   useEffect(() => { fetchOffer() }, [fetchOffer])
 
@@ -294,7 +530,7 @@ export default function WorkerApp() {
     if (!offer) return
     setActing(true)
     try {
-      await fetch(`${API_URL}/v1/workers/${WORKER_ID}/offers/${offer.id}/${action}`, { method: "POST" })
+      await fetch(`${API_URL}/v1/workers/${workerId}/offers/${offer.id}/${action}`, { method: "POST" })
       setMessage(action === "accept" ? "Shift accepted! Pre-shift briefing on the way." : "Passed — finding your next match…")
       setOffer(null)
       if (action === "decline") setTimeout(fetchOffer, 1200)
@@ -303,7 +539,7 @@ export default function WorkerApp() {
     } finally {
       setActing(false)
     }
-  }, [offer, fetchOffer])
+  }, [offer, fetchOffer, workerId])
 
   // Tap the sphere to talk to V; auto-stops on silence, 30s cap.
   const startListening = useCallback(() => {
@@ -326,6 +562,14 @@ export default function WorkerApp() {
     if (waveState === "listening") { try { recognitionRef.current?.stop() } catch {} }
     else startListening()
   }, [waveState, startListening])
+
+  // Interim account actions — the auth agent's switcher/session replaces these.
+  const switchAccount = useCallback(() => {
+    const next = window.prompt("Switch to worker id (demo bypass):", workerId)
+    if (next && next.trim()) window.location.search = `?workerId=${encodeURIComponent(next.trim())}`
+  }, [workerId])
+
+  const signOut = useCallback(() => { window.location.href = "/" }, [])
 
   const navItems: NavItem[] = [
     { id: "deck", label: "Shifts", icon: <NavIcon name="deck" /> },
@@ -416,11 +660,21 @@ export default function WorkerApp() {
         </div>
       )}
 
-      {activeTab === "passport" && <PassportTab workerId={WORKER_ID} apiUrl={API_URL} />}
+      {activeTab === "passport" && <PassportTab workerId={workerId} apiUrl={API_URL} />}
 
-      {activeTab !== "deck" && activeTab !== "passport" && (
+      {activeTab === "profile" && (
+        <ProfileTab
+          workerId={workerId}
+          apiUrl={API_URL}
+          onOpenPassport={() => setActiveTab("passport")}
+          onSwitchAccount={switchAccount}
+          onSignOut={signOut}
+        />
+      )}
+
+      {activeTab === "earnings" && (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} — coming soon</p>
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>Earnings — coming soon</p>
         </div>
       )}
     </AppShell>

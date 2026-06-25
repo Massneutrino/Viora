@@ -21,11 +21,13 @@ export interface ComplianceQueueItem {
   }
 }
 
+// Translucent fills derived from the shared semantic tokens (see globals.css):
+// --warning #e8920c, --success #1f9d57, --error #e2574a.
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  pending: { bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.3)", text: "#f59e0b" },
-  verified: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)", text: "#22c55e" },
-  rejected: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)", text: "#ef4444" },
-  expired: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)", text: "#ef4444" },
+  pending: { bg: "rgba(232,146,12,0.1)", border: "rgba(232,146,12,0.3)", text: "var(--warning)" },
+  verified: { bg: "rgba(31,157,87,0.1)", border: "rgba(31,157,87,0.3)", text: "var(--success)" },
+  rejected: { bg: "rgba(226,87,74,0.1)", border: "rgba(226,87,74,0.3)", text: "var(--error)" },
+  expired: { bg: "rgba(226,87,74,0.1)", border: "rgba(226,87,74,0.3)", text: "var(--error)" },
 }
 
 export function ComplianceQueue({ initial }: { initial: ComplianceQueueItem[] }) {
@@ -87,11 +89,11 @@ export function ComplianceQueue({ initial }: { initial: ComplianceQueueItem[] })
                   {item.documentType.replace(/_/g, " ")}
                 </span>
                 {item.fileName && (
-                  <span style={{ color: "#475569", fontSize: "0.75rem", display: "block", marginTop: 2 }}>
+                  <span style={{ color: "var(--muted)", fontSize: "0.75rem", display: "block", marginTop: 2 }}>
                     {item.fileName}
                   </span>
                 )}
-                <span style={{ color: "#475569", fontSize: "0.7rem", display: "block" }}>
+                <span style={{ color: "var(--muted)", fontSize: "0.7rem", display: "block" }}>
                   {worker.email}
                 </span>
               </div>
@@ -117,7 +119,7 @@ export function ComplianceQueue({ initial }: { initial: ComplianceQueueItem[] })
                   href={downloadUrl}
                   target="_blank"
                   rel="noreferrer"
-                  style={{ color: "#818cf8", fontSize: "0.75rem", textDecoration: "none" }}
+                  style={{ color: "var(--accent)", fontSize: "0.75rem", textDecoration: "none" }}
                 >
                   View document ↗
                 </a>
@@ -127,9 +129,9 @@ export function ComplianceQueue({ initial }: { initial: ComplianceQueueItem[] })
                   onClick={() => act(item.id, "verify")}
                   disabled={isBusy}
                   style={{
-                    background: "rgba(34,197,94,0.1)",
-                    border: "1px solid rgba(34,197,94,0.3)",
-                    color: "#22c55e",
+                    background: "rgba(31,157,87,0.1)",
+                    border: "1px solid rgba(31,157,87,0.3)",
+                    color: "var(--success)",
                     fontSize: "0.75rem",
                     padding: "3px 12px",
                     borderRadius: 6,
@@ -143,9 +145,9 @@ export function ComplianceQueue({ initial }: { initial: ComplianceQueueItem[] })
                   onClick={() => act(item.id, "reject")}
                   disabled={isBusy}
                   style={{
-                    background: "rgba(239,68,68,0.1)",
-                    border: "1px solid rgba(239,68,68,0.3)",
-                    color: "#ef4444",
+                    background: "rgba(226,87,74,0.1)",
+                    border: "1px solid rgba(226,87,74,0.3)",
+                    color: "var(--error)",
                     fontSize: "0.75rem",
                     padding: "3px 12px",
                     borderRadius: 6,

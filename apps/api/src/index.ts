@@ -8,11 +8,13 @@ import {
   createWorkerContextAgent,
   createEmployerContextAgent,
   createOpsAgent,
+  createMemoryAgent,
   getActiveLlmConfig,
 } from "@viora/agents";
 import type {
   EmployerContextAgent,
   MarketAgent,
+  MemoryAgent,
   OpsAgent,
   TrustComplianceAgent,
   WorkerContextAgent,
@@ -22,8 +24,13 @@ import { healthRoutes } from "./routes/health.js";
 import { intakeRoutes } from "./routes/intake.js";
 import { bookingRoutes } from "./routes/bookings.js";
 import { workerRoutes } from "./routes/workers.js";
+import { organisationRoutes } from "./routes/organisations.js";
 import { adminRoutes } from "./routes/admin.js";
 import { complianceAdminRoutes } from "./routes/compliance.js";
+import { demoRoutes } from "./routes/demo.js";
+import { pilotRoutes } from "./routes/pilot.js";
+import { sandboxRoutes } from "./routes/sandbox.js";
+import { memoryRoutes } from "./routes/memory.js";
 
 const port = Number(process.env.API_PORT ?? 6200);
 
@@ -50,13 +57,15 @@ async function buildServer() {
 
   const complianceAgent = createTrustComplianceAgent(prisma);
   const marketAgent = createMarketAgent(prisma, complianceAgent);
+  const memoryAgent = createMemoryAgent(prisma);
   app.decorate("agents", {
     v: vAgent,
-    employer: createEmployerContextAgent(prisma, complianceAgent, marketAgent),
+    employer: createEmployerContextAgent(prisma, complianceAgent, marketAgent, memoryAgent),
     worker: createWorkerContextAgent(prisma),
     market: marketAgent,
     compliance: complianceAgent,
     ops: createOpsAgent(prisma),
+    memory: memoryAgent,
   });
 
   app.decorate("db", prisma);
@@ -65,8 +74,13 @@ async function buildServer() {
   await app.register(intakeRoutes, { prefix: "/v1/intake" });
   await app.register(bookingRoutes, { prefix: "/v1/bookings" });
   await app.register(workerRoutes, { prefix: "/v1/workers" });
+  await app.register(organisationRoutes, { prefix: "/v1/organisations" });
+  await app.register(pilotRoutes, { prefix: "/v1/pilot" });
+  await app.register(memoryRoutes, { prefix: "/v1" });
   await app.register(adminRoutes, { prefix: "/v1/admin" });
   await app.register(complianceAdminRoutes, { prefix: "/v1/admin" });
+  await app.register(demoRoutes, { prefix: "/v1/admin" });
+  await app.register(sandboxRoutes, { prefix: "/v1/admin/sandbox" });
 
   app.get("/", async () => ({
     name: "Viora API",
@@ -93,6 +107,7 @@ declare module "fastify" {
       market: MarketAgent;
       compliance: TrustComplianceAgent;
       ops: OpsAgent;
+      memory: MemoryAgent;
     };
     db: typeof prisma;
   }

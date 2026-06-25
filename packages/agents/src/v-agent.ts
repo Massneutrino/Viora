@@ -42,6 +42,7 @@ export const vAgent: VAgent = {
 
     const sitesSummary =
       context.sites?.map((s) => `- ${s.id}: ${s.name}`).join("\n") ?? "none loaded";
+    const memorySummary = context.memory?.summary?.trim() || "No active Viora Memory loaded.";
 
     const raw = await llm.structured<Record<string, unknown>>({
       toolName: "capture_booking_intent",
@@ -55,9 +56,12 @@ Known sites for this organisation:
 ${sitesSummary}
 Employer guardrails in scope:
 ${guardrailSummary}
+Viora Memory in scope:
+${memorySummary}
 
 Rules:
 - roleType: normalise to snake_case (e.g. "supply_teacher", "teaching_assistant", "cover_supervisor", "TA")
+- Viora Memory can suggest likely defaults and context, but do not invent a booking field unless it is clearly supported by the latest message or prior conversation
 - if roleType is outside approvedRoleTypes, keep the parsed role but include "roleType" in missingFields for human clarification
 - if payRate is above budgetCeiling or below payFloor, keep the parsed rate but include "payRate" in missingFields for human clarification
 - startAt / endAt: infer from context; if the date is missing assume the next working day; default shift 08:30–15:30 UK time

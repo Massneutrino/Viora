@@ -111,4 +111,12 @@ export const stubOpsAgent: OpsAgent = {
   async getMarketHealthSummary() {
     return { unfilledCount: 0, fillRate: 0 };
   },
+  async getOpsStats() {
+    return {
+      workforce: { totalWorkers: 0, avgReliability: null, docsExpiringSoon: 0, complianceDocs: [] },
+      funnel: { bookingRequests: [], bookings: [], offers: [] },
+      operations: { shifts: [], auditOutcomes7d: [] },
+      financial: { invoices: [], revenue: 0, workerPayTotal: 0, unapprovedTimesheets: 0 },
+    };
+  },
 };
