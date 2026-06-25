@@ -72,6 +72,35 @@ export type ConversationChannel = "app" | "whatsapp" | "voice" | "phone" | "web"
 
 export type ActorType = "user" | "agent" | "system" | "admin";
 
+export type MemoryOwnerType = "organisation" | "worker";
+
+export type MemorySubjectType =
+  | "organisation"
+  | "site"
+  | "worker"
+  | "role"
+  | "booking_request"
+  | "booking"
+  | "shift"
+  | "relationship";
+
+export type MemoryKind =
+  | "preference"
+  | "instruction"
+  | "pattern"
+  | "risk"
+  | "fit_signal"
+  | "briefing_note"
+  | "availability_signal"
+  | "pay_signal"
+  | "feedback_summary";
+
+export type MemorySourceType = "user_entered" | "agent_inferred" | "system_event" | "feedback";
+
+export type MemoryVisibility = "private" | "operational" | "shared";
+
+export type MemoryStatus = "pending_confirmation" | "active" | "archived" | "deleted";
+
 /** Constraints defining what V can do autonomously for an employer or worker. */
 export interface GuardrailPolicy {
   autonomyLevel: AutonomyLevel;
@@ -256,6 +285,51 @@ export interface AuditEvent {
   outputs: Record<string, unknown>;
   outcome: string;
   createdAt: Date;
+}
+
+export interface MemoryEntry {
+  id: string;
+  ownerType: MemoryOwnerType;
+  ownerId: string;
+  subjectType: MemorySubjectType;
+  subjectId: string;
+  kind: MemoryKind;
+  key: string;
+  title: string;
+  content: string;
+  value?: unknown;
+  sourceType: MemorySourceType;
+  sourceRefType?: string | null;
+  sourceRefId?: string | null;
+  visibility: MemoryVisibility;
+  status: MemoryStatus;
+  confidence: number;
+  confirmedAt?: Date | null;
+  confirmedBy?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MemoryEdge {
+  id: string;
+  ownerType: MemoryOwnerType;
+  ownerId: string;
+  fromType: MemorySubjectType;
+  fromId: string;
+  toType: MemorySubjectType;
+  toId: string;
+  kind: MemoryKind;
+  label: string;
+  weight: number;
+  confidence: number;
+  evidenceCount: number;
+  sourceType: MemorySourceType;
+  sourceRefType?: string | null;
+  sourceRefId?: string | null;
+  visibility: MemoryVisibility;
+  status: MemoryStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface NegotiationRecord {
