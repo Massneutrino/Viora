@@ -69,8 +69,10 @@ export function PixelSphere({
 
     const cx = size / 2, cy = size / 2
     const R = size * 0.44
-    const step = Math.max(5, size / 23)
-    const u = step / 8.6 // square-size scale relative to the 200px reference
+    // Static lockup marks sample a much finer, fuller grid so the engraved V reads
+    // at small header sizes (the animated hero keeps its sparser, glossier grid).
+    const step = staticMark ? Math.max(3, size / 30) : Math.max(5, size / 23)
+    const u = (staticMark ? step / 7 : step / 8.6) // square-size scale relative to the 200px reference
     // Small marks (rail/header lockup) have few, large dots, so the orbiting glint
     // washes the engraved V. Damp the shine and deepen the engraving as size shrinks;
     // the big hero (≥160px) keeps full gloss.

@@ -147,7 +147,7 @@ export function AppShell({
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <header style={{ padding: "14px 22px", borderBottom: "0.5px solid var(--border)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <PixelSphere state="rest" size={26} staticMark />
+              <PixelSphere state="rest" size={44} staticMark />
               <Wordmark />
             </div>
             <OnlineDot />
@@ -173,7 +173,7 @@ export function AppShell({
       <div style={{ padding: "14px 22px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <span style={{ color: "var(--faint)", fontSize: 11 }}>9:41</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <PixelSphere state="rest" size={20} staticMark />
+          <PixelSphere state="rest" size={34} staticMark />
           <Wordmark scale={0.8} />
         </div>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--muted)" }}>

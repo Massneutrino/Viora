@@ -63,7 +63,7 @@ export default function RegisterPage() {
   return (
     <main className="reg-page">
       <a className="brand-link reg-brand" href="/">
-        <PixelSphere state="rest" size={32} />
+        <PixelSphere state="rest" size={44} staticMark />
         <Wordmark scale={0.85} />
       </a>
 

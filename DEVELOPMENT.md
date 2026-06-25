@@ -18,7 +18,7 @@ packages/
   domain/     Shared TypeScript types, Phase 0 scope constants, education compliance gates
   database/   Prisma schema + PostgreSQL client singleton
   agents/     Agent interfaces, stubs, and LLM-backed implementations
-  ui/         Shared React UI — V pixel-sphere identity, responsive AppShell, settings primitives (SectionCard/EditableField/etc.) (web + worker-web)
+  ui/         Shared React UI — V pixel-sphere identity, responsive AppShell, settings primitives (SectionCard/EditableField/etc.) (site + web + worker-web + admin)
   tsconfig/   Shared TypeScript configurations
 ```
 
@@ -77,6 +77,26 @@ Local ports are pinned in workspace scripts:
 - All new packages use `"type": "module"` in `package.json`
 - Line endings are normalized by `.gitattributes`: LF for repo text files, CRLF for Windows `.bat`/`.cmd` scripts
 - Local agent/editor state is ignored in `.gitignore`; keep shared instructions trackable (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`)
+
+---
+
+## Frontend & V Identity
+
+Shared UI lives in `packages/ui` (`@viora/ui`), consumed by `site`, `web`, `worker-web`, and
+`admin` via `transpilePackages`. The brand accent is the single `ACCENT` token in `PixelSphere.tsx`
+(ultramarine `#1F4DFF`); light theme only.
+
+- **`PixelSphere`** is the V identity. The animated, voice-reactive orb (`size` ~150–172) is the
+  hero on the consumer home/landing screens (morphs V↔waveform on listen/speak). For small **logo
+  lockups** pass `staticMark` — it renders once (no animation, no specular shine) on a denser grid
+  with a deep-engraved V so the mark reads at header sizes. Header lockups are `size={44}` (mobile
+  `34`), paired with `<Wordmark />` in a single sphere+wordmark lockup. Don't use a tiny animated
+  sphere for a logo — it undersamples and the V disappears.
+- **`AppShell`** (consumer apps) and the admin `console-shell.tsx` both use a collapsible left rail:
+  a panel-left toggle at the top of the rail expands (labelled) ⇄ collapses (icon-only). Mobile uses
+  bottom nav (AppShell) / a top strip (admin); collapse is desktop-only.
+- **Favicon**: every app serves a flat ultramarine V at `app/icon.svg` (no tile) — keep the four in
+  sync (`apps/{site,web,worker-web,admin}/src/app/icon.svg`).
 
 ---
 

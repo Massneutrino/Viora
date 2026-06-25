@@ -166,7 +166,7 @@ export default function PilotPage() {
     <main className="pilot-page">
       <header className="pilot-nav">
         <a className="brand-link" href="/">
-          <PixelSphere state="rest" size={36} />
+          <PixelSphere state="rest" size={44} staticMark />
           <Wordmark scale={0.9} />
         </a>
         <nav aria-label="Site navigation">

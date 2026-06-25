@@ -19,7 +19,7 @@ export function AdminHeader({ onAskV }: { onAskV?: () => void }) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <PixelSphere state="rest" size={28} staticMark />
+        <PixelSphere state="rest" size={44} staticMark />
         <Wordmark scale={0.8} />
         <span
           style={{
