@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { WaveState } from "@viora/ui";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
@@ -32,18 +32,23 @@ function getSpeechRecognition(): any | null {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export function VConversation({
-  seed,
-  onStateChange,
-  onOpenForm,
-}: {
-  /** A canned opening line (e.g. from an audience card) to send as the first visitor message. */
-  seed?: string | null;
-  /** Drives the hero sphere's WaveState. */
-  onStateChange?: (state: WaveState) => void;
-  /** Open the quick-form modal fallback. */
-  onOpenForm?: () => void;
-}) {
+/** Imperative handle so the hero orb (in page.tsx) can drive the conversation. */
+export type VConversationHandle = {
+  /** Tap the orb: start the conversation, or toggle the mic once it's running. */
+  handleSphereTap: () => void;
+};
+
+export const VConversation = forwardRef<
+  VConversationHandle,
+  {
+    /** A canned opening line (e.g. from an audience card) to send as the first visitor message. */
+    seed?: string | null;
+    /** Drives the hero sphere's WaveState. */
+    onStateChange?: (state: WaveState) => void;
+    /** Open the quick-form modal fallback. */
+    onOpenForm?: () => void;
+  }
+>(function VConversation({ seed, onStateChange, onOpenForm }, ref) {
   const [started, setStarted] = useState(false);
   const [mode, setMode] = useState<Mode>("voice");
   const [messages, setMessages] = useState<Message[]>([{ role: "v", content: GREETING }]);
@@ -249,6 +254,20 @@ export function VConversation({
     else startListening();
   }, [listening, startListening, stopListening]);
 
+  // The hero orb is the call-to-action: tapping it starts the conversation,
+  // then toggles the mic in voice mode (mirrors the product apps' onSphereTap).
+  useImperativeHandle(
+    ref,
+    () => ({
+      handleSphereTap: () => {
+        if (!started) start(true);
+        else if (modeRef.current === "voice") toggleMic();
+        else document.getElementById("vc-input")?.focus();
+      },
+    }),
+    [started, start, toggleMic],
+  );
+
   // Seed from an audience card: start (text) and send it as the first visitor message.
   const seededRef = useRef<string | null>(null);
   useEffect(() => {
@@ -263,20 +282,11 @@ export function VConversation({
     }
   }, [seed, started, send]);
 
-  // Resting state — the CTA.
+  // Resting state — the orb is the call-to-action; this is just a nudge + fallbacks.
   if (!started) {
     return (
       <div className="vc-cta">
-        <button type="button" className="vc-speak" onClick={() => start(true)}>
-          <span className="vc-speak-icon" aria-hidden="true">
-            {/* mic glyph */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="3" width="6" height="11" rx="3" />
-              <path d="M6 11a6 6 0 0 0 12 0M12 17v3" />
-            </svg>
-          </span>
-          Speak with V
-        </button>
+        <p className="vc-nudge">Tap V to speak</p>
         <p className="vc-cta-sub">Find cover or find work — V gets you set up in minutes.</p>
         <p className="vc-cta-alt">
           Prefer to type, or not now?{" "}
@@ -416,4 +426,4 @@ export function VConversation({
       )}
     </div>
   );
-}
+});

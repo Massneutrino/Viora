@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PixelRings, PixelSphere, Wordmark, type WaveState } from "@viora/ui";
-import { VConversation } from "./v-conversation";
+import { VConversation, type VConversationHandle } from "./v-conversation";
 import { QuickFormModal } from "./quick-form";
 import { MemoryDemo } from "./memory-demo";
 
@@ -155,6 +155,7 @@ export default function PilotPage() {
   const [seed, setSeed] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const typed = useTypewriter(EXAMPLES);
+  const vcRef = useRef<VConversationHandle>(null);
 
   const seedConversation = (text: string) => {
     setSeed(text);
@@ -183,6 +184,9 @@ export default function PilotPage() {
 
       <section className="hero" id="talk-to-v">
         <div className="hero-heading">
+          <span className="hero-eyebrow">
+            <Icon name="cap" /> Starting with education
+          </span>
           <h1>Tell V. Fill the shift.</h1>
           <p className="hero-typewriter">
             &ldquo;{typed}
@@ -193,14 +197,16 @@ export default function PilotPage() {
         <div className="v-stage">
           <PixelRings state={waveState} centerY={150} innerRadius={86} intensity={0.08} />
           <div className="sphere-wrap">
-            <PixelSphere state={waveState} size={172} ariaLabel="V" />
+            <PixelSphere
+              state={waveState}
+              size={172}
+              ariaLabel="Tap to talk to V"
+              onTap={() => vcRef.current?.handleSphereTap()}
+            />
           </div>
-          <span className="education-chip">
-            <Icon name="cap" /> Starting with education
-          </span>
         </div>
 
-        <VConversation seed={seed} onStateChange={setWaveState} onOpenForm={() => setFormOpen(true)} />
+        <VConversation ref={vcRef} seed={seed} onStateChange={setWaveState} onOpenForm={() => setFormOpen(true)} />
 
         <div className="audience-grid">
           <AudienceCard

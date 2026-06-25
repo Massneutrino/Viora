@@ -114,6 +114,27 @@ button {
   margin: 0 auto;
 }
 
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 auto 1.1rem;
+  border: 0.5px solid #dde2e7;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #3f4854;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.84rem;
+  white-space: nowrap;
+  box-shadow: 0 14px 38px rgba(16, 20, 27, 0.045);
+}
+
+.hero-eyebrow svg {
+  width: 1rem;
+  height: 1rem;
+  color: var(--ink);
+}
+
 h1 {
   margin: 0;
   color: var(--ink);
@@ -160,31 +181,6 @@ h1 {
   place-items: center;
 }
 
-.education-chip {
-  position: absolute;
-  z-index: 4;
-  left: 50%;
-  bottom: 0.6rem;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  border: 0.5px solid #dde2e7;
-  border-radius: 0.72rem;
-  background: rgba(255, 255, 255, 0.86);
-  color: #3f4854;
-  padding: 0.5rem 0.74rem;
-  font-size: 0.84rem;
-  white-space: nowrap;
-  box-shadow: 0 14px 38px rgba(16, 20, 27, 0.045);
-}
-
-.education-chip svg {
-  width: 1rem;
-  height: 1rem;
-  color: var(--ink);
-}
-
 /* ---- Conversation: resting CTA ---- */
 .vc-cta {
   max-width: 30rem;
@@ -195,28 +191,21 @@ h1 {
   gap: 0.5rem;
 }
 
-.vc-speak {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  border: none;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #fff;
+.vc-nudge {
+  color: var(--ink);
   font-size: 1.05rem;
   font-weight: 650;
-  padding: 0.85rem 1.6rem;
-  box-shadow: 0 16px 36px rgba(7, 13, 22, 0.18);
-  transition: transform 0.15s ease;
+  animation: vc-nudge-pulse 2.4s ease-in-out infinite;
 }
 
-.vc-speak:hover {
-  transform: translateY(-1px);
-}
-
-.vc-speak-icon {
-  display: inline-grid;
-  place-items: center;
+@keyframes vc-nudge-pulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .vc-cta-sub {
@@ -256,6 +245,28 @@ h1 {
   backdrop-filter: blur(14px);
   padding: clamp(1rem, 2vw, 1.3rem);
   text-align: left;
+  animation: vc-open 0.28s ease both;
+}
+
+@keyframes vc-open {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vc {
+    animation: none;
+  }
+  .vc-nudge {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .vc-thread {
