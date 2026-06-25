@@ -45,11 +45,13 @@ export function PixelSphere({
   size = 200,
   onTap,
   ariaLabel,
+  staticMark = false,
 }: {
   state?: WaveState
   size?: number
   onTap?: () => void
   ariaLabel?: string
+  staticMark?: boolean
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const stateRef = useRef<WaveState>(state)
@@ -69,6 +71,10 @@ export function PixelSphere({
     const R = size * 0.44
     const step = Math.max(5, size / 23)
     const u = step / 8.6 // square-size scale relative to the 200px reference
+    // Small marks (rail/header lockup) have few, large dots, so the orbiting glint
+    // washes the engraved V. Damp the shine and deepen the engraving as size shrinks;
+    // the big hero (≥160px) keeps full gloss.
+    const gloss = Math.max(0, Math.min(1, (size - 40) / 120))
     // Precompute the sphere normal (nx, ny, z) per dot so we can shade it as a 3D ball.
     const dots: { x: number; y: number; nx: number; ny: number; z: number }[] = []
     for (let y = cy - R; y <= cy + R; y += step)
@@ -98,7 +104,11 @@ export function PixelSphere({
       const ph = t * speed
 
       // Light orbits the sphere so the chrome glint travels around it (alive at rest).
-      let lx = Math.cos(t * 0.7) * 0.42, ly = Math.sin(t * 0.7) * 0.42, lz = 0.6
+      // Static lockup marks use a fixed upper-left light (no travelling glint) so the
+      // engraved V stays put and legible.
+      let lx = staticMark ? -0.35 : Math.cos(t * 0.7) * 0.42
+      let ly = staticMark ? -0.45 : Math.sin(t * 0.7) * 0.42
+      let lz = staticMark ? 0.85 : 0.6
       const ll = Math.hypot(lx, ly, lz); lx /= ll; ly /= ll; lz /= ll
       let hx = lx, hy = ly, hz = lz + 1
       const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl
@@ -130,10 +140,12 @@ export function PixelSphere({
 
         // At rest the V/wave reads as a darker engraving (light-independent) so the
         // mark holds as the glint orbits; raised pixels only brighten once active.
-        const sp2 = spec * (0.4 + relief * 1.1) * 0.4
-        r += 255 * sp2 - rest * 55 + active * relief * 18
-        g += 255 * sp2 - rest * 55 + active * relief * 18
-        b += 255 * sp2 - rest * 52 + active * relief * 20
+        const sp2 = staticMark ? 0 : spec * (0.4 + relief * 1.1) * 0.4 * (0.15 + 0.85 * gloss)
+        // Static marks have no shine, so lean on a deep engraving to read the V clearly.
+        const engrave = staticMark ? 1.9 : 1 + (1 - gloss) * 0.73
+        r += 255 * sp2 - rest * 55 * engrave + active * relief * 18
+        g += 255 * sp2 - rest * 55 * engrave + active * relief * 18
+        b += 255 * sp2 - rest * 52 * engrave + active * relief * 20
 
         // Ultramarine (or success/warning) only when active.
         const mix = a * active * 0.9
@@ -146,11 +158,11 @@ export function PixelSphere({
         ctx.fillStyle = `rgb(${Math.min(255, r | 0)},${Math.min(255, g | 0)},${Math.min(255, b | 0)})`
         ctx.fillRect(dt.x - lx * off - sz / 2, dt.y - ly * off - sz / 2, sz, sz)
       }
-      raf = requestAnimationFrame(draw)
+      if (!staticMark) raf = requestAnimationFrame(draw)
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [size])
+  }, [size, staticMark])
 
   return (
     <canvas

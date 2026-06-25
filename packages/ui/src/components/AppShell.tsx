@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { PixelSphere, type WaveState } from "./PixelSphere"
 import { PixelRings } from "./PixelRings"
+import { Wordmark } from "./Wordmark"
 
 export type PreviewMode = "auto" | "web" | "phone"
 export type NavItem = { id: string; label: string; icon: ReactNode }
@@ -13,12 +14,12 @@ const OVER_RINGS: React.CSSProperties = {
   display: "flex", flexDirection: "column", overflow: "hidden",
 }
 
-function Wordmark({ scale = 1 }: { scale?: number }) {
+function PanelLeftIcon() {
   return (
-    <span style={{ display: "inline-flex", alignItems: "baseline", color: "var(--text)", letterSpacing: "0.1em" }}>
-      <span style={{ fontSize: 24 * scale, fontWeight: 600 }}>V</span>
-      <span style={{ fontSize: 15 * scale, fontWeight: 600 }}>IORA</span>
-    </span>
+    <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
   )
 }
 
@@ -84,6 +85,7 @@ export function AppShell({
   footer?: ReactNode
 }) {
   const [isNarrow, setNarrow] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 899px)")
     const on = () => setNarrow(mq.matches)
@@ -104,24 +106,50 @@ export function AppShell({
       <div style={{ display: "flex", height: "100vh", background: "var(--bg)", overflow: "hidden" }}>
         <PreviewToggle preview={preview} onChange={onPreviewChange} />
 
-        <nav style={{ width: 76, background: "var(--surface)", borderRight: "0.5px solid var(--border)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14, gap: 4, flexShrink: 0 }}>
-          <div style={{ marginBottom: 14 }}><PixelSphere state="rest" size={30} /></div>
+        <nav style={{
+          width: navCollapsed ? 76 : 208, background: "var(--surface)", borderRight: "0.5px solid var(--border)",
+          display: "flex", flexDirection: "column", alignItems: navCollapsed ? "center" : "stretch",
+          paddingTop: 12, paddingLeft: navCollapsed ? 0 : 12, paddingRight: navCollapsed ? 0 : 12,
+          gap: 4, flexShrink: 0, transition: "width 0.15s",
+        }}>
+          <button
+            type="button"
+            onClick={() => setNavCollapsed(c => !c)}
+            aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            style={{
+              width: 30, height: 30, flexShrink: 0, alignSelf: navCollapsed ? "center" : "flex-start",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)",
+            }}
+          >
+            <PanelLeftIcon />
+          </button>
+          <div style={{ height: 8 }} />
           {navItems.map(n => (
             <button key={n.id} onClick={() => onNavChange(n.id)} title={n.label} style={{
-              width: 60, borderRadius: 11, border: "none", padding: "8px 0",
+              border: "none", borderRadius: 11, transition: "all 0.15s",
               background: activeNav === n.id ? "rgba(31,77,255,0.1)" : "transparent",
               color: activeNav === n.id ? "var(--accent)" : "var(--muted)",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s",
+              display: "flex", alignItems: "center",
+              ...(navCollapsed
+                ? { width: 60, padding: "8px 0", flexDirection: "column" as const, justifyContent: "center", gap: 4, alignSelf: "center" }
+                : { width: "100%", padding: "9px 11px", flexDirection: "row" as const, gap: 11 }),
             }}>
               {n.icon}
-              <span style={{ fontSize: 9, fontWeight: activeNav === n.id ? 600 : 400 }}>{n.label}</span>
+              {navCollapsed
+                ? <span style={{ fontSize: 9, fontWeight: activeNav === n.id ? 600 : 400 }}>{n.label}</span>
+                : <span style={{ fontSize: 13, fontWeight: activeNav === n.id ? 600 : 500 }}>{n.label}</span>}
             </button>
           ))}
         </nav>
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <header style={{ padding: "14px 22px", borderBottom: "0.5px solid var(--border)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <Wordmark />
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <PixelSphere state="rest" size={26} staticMark />
+              <Wordmark />
+            </div>
             <OnlineDot />
           </header>
           <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "var(--bg)" }}>
@@ -144,7 +172,10 @@ export function AppShell({
     <>
       <div style={{ padding: "14px 22px 0", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <span style={{ color: "var(--faint)", fontSize: 11 }}>9:41</span>
-        <Wordmark scale={0.8} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <PixelSphere state="rest" size={20} staticMark />
+          <Wordmark scale={0.8} />
+        </div>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--muted)" }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />V
         </span>
