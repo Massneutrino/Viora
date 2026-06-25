@@ -10,6 +10,44 @@ const parseIntentSchema = z.object({
   conversationId: z.string().nullish(),
 });
 
+const FALLBACK_MISSING_FIELDS = ["roleType", "siteId", "startAt", "endAt", "payRate"];
+
+function fallbackIntakeMessage(): string {
+  return "I have your request, but I need a few details to make sure it is booked correctly. Please send the role, site, date and time, and pay rate.";
+}
+
+function fallbackClarificationMessage(missingFields: string[]): string {
+  const friendlyFields = missingFields.map((field) => {
+    const labels: Record<string, string> = {
+      roleType: "role",
+      siteId: "site",
+      startAt: "start date/time",
+      endAt: "end time",
+      payRate: "pay rate",
+    };
+    return labels[field] ?? field;
+  });
+  return `I can help with that. Could you confirm ${friendlyFields.slice(0, 2).join(" and ")}?`;
+}
+
+function fallbackConfirmationMessage(intent: ParsedBookingIntent): string {
+  const site = intent.siteName ?? intent.siteId ?? "the selected site";
+  const pay = intent.payRate === undefined ? "" : ` at GBP ${intent.payRate}/hour`;
+  return `I have captured this as ${intent.roleType} at ${site} from ${intent.startAt.toISOString()} to ${intent.endAt.toISOString()}${pay}. I will keep it ready for confirmation.`;
+}
+
+function serializeError(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) {
+    const status = "status" in err ? (err as { status?: number }).status : undefined;
+    return {
+      name: err.name,
+      message: err.message,
+      ...(typeof status === "number" ? { status } : {}),
+    };
+  }
+  return { message: String(err) };
+}
+
 function deserializeIntent(snapshot: Record<string, unknown> | null | undefined): ParsedBookingIntent | null {
   if (!snapshot || typeof snapshot.roleType !== "string") return null;
   return {
@@ -168,6 +206,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       where: { organisationId: body.organisationId },
       select: { id: true, name: true },
     });
+    const organisationMemory = await app.agents.memory.getOrganisationContext(body.organisationId);
 
     let priorIntent: ParsedBookingIntent | null = null;
     let priorMessages: { role: string; content: string }[] = [];
@@ -184,13 +223,128 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
     }
 
     intakeContext.sites = sites;
+    intakeContext.memory = { summary: organisationMemory.summary };
 
     const parsePrompt = buildParsePrompt(body.rawInput, priorIntent, priorMessages);
-    const parsedIntent = resolveSiteId(
-      mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext)),
-      sites,
-      body.rawInput,
-    );
+    let parsedIntent: ParsedBookingIntent;
+    try {
+      parsedIntent = resolveSiteId(
+        mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext)),
+        sites,
+        body.rawInput,
+      );
+    } catch (err) {
+      const providerError = serializeError(err);
+      request.log.warn({ err }, "V intake parse failed; using degraded fallback");
+      const message = fallbackIntakeMessage();
+      const fallbackSnapshot = {
+        rawInput: body.rawInput,
+        missingFields: FALLBACK_MISSING_FIELDS,
+        degradedReason: "llm_unavailable",
+        priorIntent: priorIntent ? serializeIntent(priorIntent) : null,
+      };
+
+      const persistence = await app.db.$transaction(async (tx) => {
+        const messageRows = [
+          {
+            role: "employer",
+            content: body.rawInput,
+            metadata: { channel: body.channel } as Prisma.InputJsonValue,
+          },
+          {
+            role: "agent",
+            content: message,
+            metadata: {
+              clarificationNeeded: true,
+              missingFields: FALLBACK_MISSING_FIELDS,
+              bookingRequestId: null,
+              fallbackUsed: true,
+              degradedReason: "llm_unavailable",
+            } as Prisma.InputJsonValue,
+          },
+        ];
+
+        const conversation = body.conversationId
+          ? await tx.conversation.update({
+              where: { id: body.conversationId },
+              data: {
+                messages: { create: messageRows },
+              },
+            })
+          : await tx.conversation.create({
+              data: {
+                participantType: "employer",
+                participantId: body.organisationId,
+                channel: body.channel,
+                intent: "booking_request",
+                extractedEntities: fallbackSnapshot as Prisma.InputJsonValue,
+                messages: { create: messageRows },
+              },
+            });
+
+        const auditBase = {
+          organisationId: body.organisationId,
+          rawInput: body.rawInput,
+          channel: body.channel,
+          conversationId: body.conversationId ?? null,
+          guardrails: guardrailSnapshot,
+        };
+
+        await tx.auditEvent.create({
+          data: {
+            actorType: "agent",
+            actorId: "v",
+            action: "intake.parse",
+            entityType: "Conversation",
+            entityId: conversation.id,
+            inputs: auditBase as Prisma.InputJsonValue,
+            outputs: {
+              conversationId: conversation.id,
+              bookingRequestId: null,
+              fallbackUsed: true,
+              degradedReason: "llm_unavailable",
+              providerError,
+            } as Prisma.InputJsonValue,
+            outcome: "degraded_llm_unavailable",
+          },
+        });
+
+        await tx.auditEvent.create({
+          data: {
+            actorType: "agent",
+            actorId: "v",
+            action: "intake.clarify",
+            entityType: "Conversation",
+            entityId: conversation.id,
+            inputs: {
+              ...auditBase,
+              missingFields: FALLBACK_MISSING_FIELDS,
+            } as Prisma.InputJsonValue,
+            outputs: {
+              message,
+              conversationId: conversation.id,
+              bookingRequestId: null,
+              fallbackUsed: true,
+              degradedReason: "llm_unavailable",
+            } as Prisma.InputJsonValue,
+            outcome: "degraded_llm_unavailable",
+          },
+        });
+
+        return { conversationId: conversation.id };
+      });
+
+      return reply.send({
+        intent: null,
+        clarificationNeeded: true,
+        message,
+        bookingRequestId: null,
+        conversationId: persistence.conversationId,
+        fallbackUsed: true,
+        degradedReason: "llm_unavailable",
+      });
+    }
+
     const missingFields = normalizeMissingFields(parsedIntent, intakeContext.guardrails);
     const intent: ParsedBookingIntent = { ...parsedIntent, missingFields };
 
@@ -200,12 +354,23 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       guardrails: guardrailSnapshot,
       priorIntent: intentSnapshot,
       knownSites: sites,
+      memory: organisationMemory.summary,
     };
 
     const clarificationNeeded = missingFields.length > 0;
-    const message = clarificationNeeded
-      ? await app.agents.v.clarify(missingFields, clarificationContext)
-      : await app.agents.v.confirmIntent(intent);
+    let message: string;
+    let responseFallbackUsed = false;
+    let responseProviderError: Record<string, unknown> | undefined;
+    try {
+      message = clarificationNeeded
+        ? await app.agents.v.clarify(missingFields, clarificationContext)
+        : await app.agents.v.confirmIntent(intent);
+    } catch (err) {
+      request.log.warn({ err }, "V intake response generation failed; using deterministic response");
+      responseFallbackUsed = true;
+      responseProviderError = serializeError(err);
+      message = clarificationNeeded ? fallbackClarificationMessage(missingFields) : fallbackConfirmationMessage(intent);
+    }
 
     const persistence = await app.db.$transaction(async (tx) => {
       let bookingRequestId: string | undefined;
@@ -243,6 +408,8 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
             clarificationNeeded,
             missingFields,
             bookingRequestId: bookingRequestId ?? null,
+            fallbackUsed: responseFallbackUsed,
+            degradedReason: responseFallbackUsed ? "llm_unavailable" : null,
           } as Prisma.InputJsonValue,
         },
       ];
@@ -293,6 +460,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
             clarificationNeeded,
             conversationId: conversation.id,
             bookingRequestId: bookingRequestId ?? null,
+            fallbackUsed: false,
           } as Prisma.InputJsonValue,
           outcome: "parsed",
         },
@@ -314,13 +482,35 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
             message,
             conversationId: conversation.id,
             bookingRequestId: bookingRequestId ?? null,
+            fallbackUsed: responseFallbackUsed,
+            ...(responseProviderError ? { providerError: responseProviderError } : {}),
           } as Prisma.InputJsonValue,
-          outcome: clarificationNeeded ? "clarification_required" : "pending_confirmation",
+          outcome: responseFallbackUsed
+            ? "degraded_llm_unavailable"
+            : clarificationNeeded
+              ? "clarification_required"
+              : "pending_confirmation",
         },
       });
 
       return { bookingRequestId, conversationId: conversation.id };
     });
+
+    await app.agents.memory.rememberFromEvent({
+      ownerType: "organisation",
+      ownerId: body.organisationId,
+      subjectType: persistence.bookingRequestId ? "booking_request" : "organisation",
+      subjectId: persistence.bookingRequestId ?? body.organisationId,
+      sourceRefType: persistence.bookingRequestId ? "BookingRequest" : "Conversation",
+      sourceRefId: persistence.bookingRequestId ?? persistence.conversationId,
+      text: `Employer intake turn: ${body.rawInput}\nV response: ${message}`,
+      data: {
+        intent: intentSnapshot,
+        clarificationNeeded,
+        missingFields,
+        channel: body.channel,
+      },
+    }).catch((err) => request.log.warn({ err }, "memory inference failed after intake"));
 
     return reply.send({
       intent,
@@ -328,6 +518,8 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
       message,
       bookingRequestId: persistence.bookingRequestId,
       conversationId: persistence.conversationId,
+      fallbackUsed: responseFallbackUsed,
+      ...(responseFallbackUsed ? { degradedReason: "llm_unavailable" } : {}),
     });
   });
 };

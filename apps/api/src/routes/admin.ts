@@ -1,7 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
+import { createLLMClient } from "@viora/agents";
 import { writeAuditEvent } from "../audit.js";
+
+const askSchema = z.object({
+  question: z.string().min(1).max(2000),
+  adminId: z.string().min(1).optional(),
+});
 
 const approveTimesheetSchema = z.object({
   approvedBy: z.string().min(1),
@@ -22,6 +28,22 @@ const cancelBookingSchema = z.object({
   adminId: z.string().min(1),
   reason: z.string().min(1).optional(),
 });
+
+const approveLeadSchema = z.object({
+  adminId: z.string().min(1).optional(),
+});
+
+/** Stable, URL-safe id fragment so approving the same lead twice is idempotent. */
+function slugify(input: string): string {
+  return (
+    input
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "x"
+  );
+}
 
 const reopenBookingSchema = z.object({
   adminId: z.string().min(1),
@@ -47,12 +69,184 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return app.agents.ops.getMarketHealthSummary();
   });
 
+  app.get("/ops/stats", async () => {
+    return app.agents.ops.getOpsStats();
+  });
+
+  /** POST /v1/admin/ops/ask — data-aware Q&A console for the ops team. */
+  app.post("/ops/ask", async (request, reply) => {
+    const body = askSchema.parse(request.body);
+    const adminId = body.adminId ?? "admin";
+
+    const [stats, marketHealth] = await Promise.all([
+      app.agents.ops.getOpsStats(),
+      app.agents.ops.getMarketHealthSummary(),
+    ]);
+
+    const context = JSON.stringify({ marketHealth, stats });
+    const system =
+      "You are V, the internal operations analyst for Viora, an AI-native staffing platform for " +
+      "schools. Answer the operator's question using ONLY the live metrics provided in the " +
+      "CONTEXT JSON. Be concise and direct — a sentence or two, with the relevant numbers. If the " +
+      "answer is not in the data, say so plainly. Do not invent figures.";
+    const prompt = `CONTEXT:\n${context}\n\nQUESTION: ${body.question}`;
+
+    let answer: string;
+    let degraded = false;
+    try {
+      const llm = await createLLMClient();
+      answer = await llm.complete({ system, prompt, maxTokens: 512 });
+    } catch (err) {
+      request.log.error(err, "ops.ask LLM call failed");
+      degraded = true;
+      answer =
+        "V is temporarily unavailable, so I can't answer that right now. The live metrics are " +
+        "still shown in the dashboard panels.";
+    }
+
+    await writeAuditEvent(app.db, {
+      actorType: "admin",
+      actorId: adminId,
+      action: "ops.ask",
+      entityType: "OpsConsole",
+      entityId: "ask",
+      inputs: { question: body.question } as Prisma.InputJsonValue,
+      outputs: { answerPreview: answer.slice(0, 280) } as Prisma.InputJsonValue,
+      outcome: degraded ? "degraded_llm_unavailable" : "success",
+    });
+
+    return reply.send({ answer, degraded });
+  });
+
   app.get("/audit", async () => {
     const events = await app.db.auditEvent.findMany({
       take: 100,
       orderBy: { createdAt: "desc" },
     });
     return { events };
+  });
+
+  app.get("/pilot/leads", async () => {
+    const leads = await app.db.pilotLead.findMany({
+      take: 50,
+      orderBy: { createdAt: "desc" },
+    });
+    return { leads };
+  });
+
+  /** POST /v1/admin/pilot/leads/:id/approve — mint the account + return an access link. Idempotent. */
+  app.post("/pilot/leads/:id/approve", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { adminId = "admin" } = approveLeadSchema.parse(request.body ?? {});
+
+    const lead = await app.db.pilotLead.findUnique({ where: { id } });
+    if (!lead) return reply.code(404).send({ error: "Pilot lead not found." });
+
+    const webUrl = process.env.WEB_URL ?? "http://localhost:6100";
+    const workerWebUrl = process.env.WORKER_WEB_URL ?? "http://localhost:6102";
+
+    const result = await app.db.$transaction(async (tx) => {
+      let accountType: "organisation" | "worker";
+      let accountId: string;
+      let link: string;
+
+      if (lead.leadType === "employer") {
+        const orgName = lead.organisationName?.trim() || lead.name;
+        const orgId = `org-${slugify(orgName)}`;
+        const org = await tx.organisation.upsert({
+          where: { id: orgId },
+          update: { name: orgName },
+          create: { id: orgId, name: orgName, type: "school", sector: "education" },
+        });
+        await tx.site.upsert({
+          where: { id: `${orgId}-main` },
+          update: {},
+          create: {
+            id: `${orgId}-main`,
+            organisationId: org.id,
+            name: `${orgName} — main site`,
+            address: lead.postcode?.trim() || "To be confirmed",
+          },
+        });
+        await tx.guardrailPolicy.upsert({
+          where: { organisationId: org.id },
+          update: {},
+          create: {
+            organisationId: org.id,
+            autonomyLevel: "L2",
+            approvedRoleTypes: lead.roleTitle ? [lead.roleTitle] : [],
+            workerWhitelist: [],
+            workerBlocklist: [],
+            escalationContacts: lead.email ? [lead.email] : [],
+          },
+        });
+        await tx.employerUser.upsert({
+          where: { email: lead.email },
+          update: { name: lead.name, organisationId: org.id },
+          create: { email: lead.email, name: lead.name, organisationId: org.id, role: "organisation_admin" },
+        });
+        accountType = "organisation";
+        accountId = org.id;
+        link = `${webUrl}/?orgId=${encodeURIComponent(org.id)}`;
+      } else {
+        const parts = lead.name.trim().split(/\s+/);
+        const firstName = parts[0] || lead.name;
+        const lastName = parts.slice(1).join(" ") || "—";
+        const workerId = `wkr-${slugify(lead.email)}`;
+        const worker = await tx.worker.upsert({
+          where: { email: lead.email },
+          update: { firstName, lastName, phone: lead.phone ?? undefined, roleTypes: lead.workerRoleTypes },
+          create: {
+            id: workerId,
+            email: lead.email,
+            firstName,
+            lastName,
+            phone: lead.phone ?? undefined,
+            roleTypes: lead.workerRoleTypes,
+          },
+        });
+        await tx.passport.upsert({
+          where: { workerId: worker.id },
+          update: {},
+          create: { workerId: worker.id, sectorEligibility: ["education"] },
+        });
+        await tx.guardrailPolicy.upsert({
+          where: { workerId: worker.id },
+          update: {},
+          create: {
+            workerId: worker.id,
+            autonomyLevel: "L2",
+            approvedRoleTypes: lead.workerRoleTypes,
+            workerWhitelist: [],
+            workerBlocklist: [],
+            escalationContacts: [],
+          },
+        });
+        accountType = "worker";
+        accountId = worker.id;
+        link = `${workerWebUrl}/?workerId=${encodeURIComponent(worker.id)}`;
+      }
+
+      const updatedLead = await tx.pilotLead.update({
+        where: { id },
+        data: { status: "approved" },
+      });
+
+      await writeAuditEvent(tx, {
+        actorType: "admin",
+        actorId: adminId,
+        action: "pilot.lead.approve",
+        entityType: "PilotLead",
+        entityId: id,
+        inputs: { leadType: lead.leadType, email: lead.email } as Prisma.InputJsonValue,
+        outputs: { accountType, accountId, link } as Prisma.InputJsonValue,
+        outcome: "approved",
+      });
+
+      return { lead: updatedLead, accountType, accountId, link };
+    });
+
+    return reply.send(result);
   });
 
   app.get("/compliance/queue", async () => {
