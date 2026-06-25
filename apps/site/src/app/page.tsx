@@ -176,9 +176,6 @@ export default function PilotPage() {
           <a className="sign-in" href="/register">
             Sign in
           </a>
-          <a className="nav-cta" href="#talk-to-v">
-            Speak with V
-          </a>
         </nav>
       </header>
 

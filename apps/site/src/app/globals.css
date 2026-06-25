@@ -89,17 +89,10 @@ button {
   background: rgba(255, 255, 255, 0.75);
 }
 
-.pilot-nav .nav-cta,
 .card-action.primary {
   color: #fff;
   background: var(--ink);
   box-shadow: 0 12px 28px rgba(7, 13, 22, 0.12);
-}
-
-.pilot-nav .nav-cta {
-  border-radius: 0.55rem;
-  padding: 0.66rem 1rem;
-  font-weight: 700;
 }
 
 /* Hero */
@@ -509,10 +502,10 @@ h1 {
 
 .audience-card {
   min-height: 7rem;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
   border: 0.5px solid #dde2e7;
   border-radius: 0.85rem;
   background: rgba(255, 255, 255, 0.82);
@@ -561,8 +554,9 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 9rem;
+  margin-top: auto;
   min-height: 3rem;
+  padding: 0 1.1rem;
   border: 0.5px solid #cfd6de;
   border-radius: 0.55rem;
   background: #fff;
@@ -1093,7 +1087,7 @@ h2 {
 
 /* Responsive */
 @media (max-width: 900px) {
-  .pilot-nav nav a:not(.nav-cta):not(.sign-in) {
+  .pilot-nav nav a:not(.sign-in) {
     display: none;
   }
   .proof-strip {
@@ -1110,13 +1104,6 @@ h2 {
   }
   .audience-grid {
     grid-template-columns: 1fr;
-  }
-  .audience-card {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .card-action {
-    grid-column: 1 / -1;
-    width: 100%;
   }
 }
 
