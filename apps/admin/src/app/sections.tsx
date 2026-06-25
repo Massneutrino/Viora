@@ -56,6 +56,24 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export interface DynamicRateRecord {
+  id: string;
+  bookingRequestId: string;
+  workerId: string;
+  employerCeiling: number;
+  workerFloor: number;
+  agreedRate?: number | null;
+  explanation: string;
+  createdAt: string;
+  bookingRequest?: {
+    roleType: string;
+    payRate: number;
+    maxPayRate?: number | null;
+    site?: { name: string } | null;
+    organisation?: { name: string } | null;
+  };
+}
+
 export interface ConsoleData {
   unfilled: UnfilledShift[];
   marketHealth: MarketHealth;
@@ -63,6 +81,7 @@ export interface ConsoleData {
   memory: MemoryReviewItem[];
   pilotLeads: PilotLead[];
   audit: AuditEvent[];
+  negotiations: DynamicRateRecord[];
   stats: OpsStats;
   memoryLab: MemoryLabState;
 }
@@ -166,7 +185,7 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
 
 // ── Operations ────────────────────────────────────────────────────────────────
 export function OperationsSection({ data }: { data: ConsoleData }) {
-  const { compliance, memory, unfilled, audit } = data;
+  const { compliance, memory, unfilled, audit, negotiations } = data;
   const recovery = audit.filter((e) => RECOVERY_ACTIONS.includes(e.action));
 
   return (
@@ -189,6 +208,18 @@ export function OperationsSection({ data }: { data: ConsoleData }) {
           items={recovery
             .slice(0, 10)
             .map((e) => `${e.action} · ${e.outcome} · ${formatTime(e.createdAt)}`)}
+        />
+      </Panel>
+      <Panel title="Dynamic Rate" description="Recent L3 rate clearing records">
+        <SimpleList
+          empty="No Dynamic Rate records"
+          items={negotiations.slice(0, 10).map((record) => {
+            const shift = record.bookingRequest
+              ? `${formatLabel(record.bookingRequest.roleType)} at ${record.bookingRequest.site?.name ?? "site TBC"}`
+              : record.bookingRequestId;
+            const rate = record.agreedRate != null ? formatGbp(record.agreedRate) : "Escalated";
+            return `${rate} - floor ${formatGbp(record.workerFloor)} - ceiling ${formatGbp(record.employerCeiling)} - ${shift}`;
+          })}
         />
       </Panel>
       <Panel title="Audit log" description="Latest platform actions">

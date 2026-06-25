@@ -120,6 +120,9 @@ Write an `AuditEvent` row for every agent decision: `actorType`, `actorId`, `act
 **Guardrail policies are not optional.**
 Before any agent takes an autonomous action, fetch the `GuardrailPolicy` for the organisation (or worker) and enforce `autonomyLevel`, `budgetCeiling`, `payFloor`, and `approvedRoleTypes`. If the action exceeds the policy, set `requiresHumanApproval: true` and queue it — never proceed silently.
 
+**Rate modes are explicit.**
+Bookings use `rateMode: "standard" | "dynamic"`. Standard Rate broadcasts the fixed `BookingRequest.payRate`. Dynamic Rate is a Phase 1/L3 mode: require `autonomyLevel >= L3`, `BookingRequest.maxPayRate`, and worker `GuardrailPolicy.payFloor`; cap the cleared rate by both booking `maxPayRate` and employer `budgetCeiling`; write a `NegotiationRecord` and `AuditEvent` for every Dynamic Rate offer. Once accepted, `Offer.payRate` is the source of truth for `Booking.payRate`, timesheets, invoices, and payroll exports.
+
 **Phase 0 scope is the source of truth.**
 `packages/domain/src/phase0.ts` defines `PHASE_0_MUST_HAVE` (17 items) and `PHASE_0_SUCCESS_METRICS`. Don't build beyond Phase 0 scope without flagging it.
 

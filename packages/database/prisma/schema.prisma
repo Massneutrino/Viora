@@ -81,6 +81,11 @@ enum BroadcastStrategy {
   manual_approval
 }
 
+enum RateMode {
+  standard
+  dynamic
+}
+
 enum ConversationChannel {
   app
   whatsapp
@@ -368,6 +373,7 @@ model BookingRequest {
   roleType         String
   startAt          DateTime
   endAt            DateTime
+  rateMode         RateMode             @default(standard)
   payRate          Float
   maxPayRate       Float?
   requirements     Json?

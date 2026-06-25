@@ -6,6 +6,7 @@ import type { Prisma } from "@viora/database";
 const parseIntentSchema = z.object({
   organisationId: z.string(),
   rawInput: z.string().min(1),
+  rateMode: z.enum(["standard", "dynamic"]).optional(),
   channel: z.enum(["app", "whatsapp", "voice", "phone", "web"]).default("web"),
   conversationId: z.string().nullish(),
 });
@@ -23,6 +24,7 @@ function fallbackClarificationMessage(missingFields: string[]): string {
       siteId: "site",
       startAt: "start date/time",
       endAt: "end time",
+      maxPayRate: "maximum rate",
       payRate: "pay rate",
     };
     return labels[field] ?? field;
@@ -56,6 +58,7 @@ function deserializeIntent(snapshot: Record<string, unknown> | null | undefined)
     siteName: typeof snapshot.siteName === "string" ? snapshot.siteName : undefined,
     startAt: new Date(snapshot.startAt as string),
     endAt: new Date(snapshot.endAt as string),
+    rateMode: snapshot.rateMode === "dynamic" ? "dynamic" : "standard",
     payRate: typeof snapshot.payRate === "number" ? snapshot.payRate : undefined,
     maxPayRate: typeof snapshot.maxPayRate === "number" ? snapshot.maxPayRate : undefined,
     requirements:
@@ -77,6 +80,7 @@ function mergeIntent(prior: ParsedBookingIntent | null, next: ParsedBookingInten
     siteName: next.siteName ?? prior.siteName,
     startAt: next.startAt,
     endAt: next.endAt,
+    rateMode: next.rateMode ?? prior.rateMode,
     payRate: next.payRate ?? prior.payRate,
     maxPayRate: next.maxPayRate ?? prior.maxPayRate,
     requirements: next.requirements ?? prior.requirements,
@@ -129,6 +133,7 @@ function serializeIntent(intent: ParsedBookingIntent): Record<string, unknown> {
     siteName: intent.siteName ?? null,
     startAt: intent.startAt.toISOString(),
     endAt: intent.endAt.toISOString(),
+    rateMode: intent.rateMode ?? "standard",
     payRate: intent.payRate ?? null,
     maxPayRate: intent.maxPayRate ?? null,
     requirements: intent.requirements ?? null,
@@ -145,6 +150,7 @@ function normalizeMissingFields(
 
   if (!intent.siteId) missing.add("siteId");
   if (intent.payRate === undefined) missing.add("payRate");
+  if (intent.rateMode === "dynamic" && intent.maxPayRate === undefined) missing.add("maxPayRate");
 
   if (guardrails.approvedRoleTypes.length > 0 && !guardrails.approvedRoleTypes.includes(intent.roleType)) {
     missing.add("roleType");
@@ -231,8 +237,12 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
     const parsePrompt = buildParsePrompt(body.rawInput, priorIntent, priorMessages);
     let parsedIntent: ParsedBookingIntent;
     try {
+      const mergedIntent = mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext));
       parsedIntent = resolveSiteId(
-        mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext)),
+        {
+          ...mergedIntent,
+          rateMode: body.rateMode ?? mergedIntent.rateMode ?? "standard",
+        },
         sites,
         body.rawInput,
       );
@@ -388,6 +398,7 @@ export const intakeRoutes: FastifyPluginAsync = async (app) => {
             endAt: intent.endAt,
             payRate: intent.payRate,
             maxPayRate: intent.maxPayRate,
+            rateMode: intent.rateMode ?? "standard",
             requirements: intent.requirements as Prisma.InputJsonValue | undefined,
             rawIntent: body.rawInput,
             channel: body.channel,

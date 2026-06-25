@@ -248,9 +248,9 @@ The employer agent holds the booking: budget ceiling, role requirements, preferr
 
 The worker agent holds the worker: availability, commute constraints, pay floor, sector preferences, reliability history, and current pipeline.
 
-The Market Agent clears the match: ranking candidates, predicting acceptance probability, determining whether a pay uplift improves expected fill speed, and sequencing offers.
+The Market Agent clears the match: ranking candidates, predicting acceptance probability, determining whether a Dynamic Rate uplift improves expected fill speed, and sequencing offers.
 
-Every negotiation outcome is stored as an auditable object. Both sides see the result and a plain-English explanation. No autonomous negotiation happens outside the guardrails each side has explicitly defined.
+Every Dynamic Rate outcome is stored as an auditable object. Both sides see the result and a plain-English explanation. No autonomous rate clearing happens outside the guardrails each side has explicitly defined.
 
 ## 6. AI-Native Architecture
 
@@ -274,7 +274,7 @@ Viora does not require employers or workers to trust full automation at launch. 
 | **L0 — Suggest only** | V produces a ranked shortlist and explanation. The employer approves every booking manually. |
 | **L1 — Auto-shortlist** | V shortlists and ranks automatically. Employer approves the top candidate. |
 | **L2 — Auto-broadcast** | V broadcasts to the ranked list automatically. Employer sees confirmation when filled. Can override at any point. |
-| **L3 — Auto-negotiate within guardrails** | V negotiates pay within defined employer ceiling and worker floor. Humans see the result and explanation. |
+| **L3 — Dynamic Rate within guardrails** | V clears pay within defined employer ceiling and worker floor. Humans see the result and explanation. |
 | **L4 — Fully autonomous, monitored** | V books, confirms, and manages the shift end-to-end within all defined policies. Full audit trail. Human override always available. |
 
 Phase 0 pilot: most employers start at L1 or L2. L3 and L4 are available only after a defined track record of successful bookings. Workers choose their own auto-accept level independently.
@@ -361,11 +361,11 @@ Spend trend by school, department, role type, and period
 
 This is not just a trust feature. It is a sales tool. The moment a MAT leader can see that Viora cost them 22% less than their agency over a term, the conversation about switching becomes very short.
 
-### 7.6 Guardrailed Autonomy — Agent-to-Agent Negotiation
+### 7.6 Dynamic Rate — Guardrailed Rate Clearing
 
-When an employer has enabled L3 or above, V can negotiate pay within defined guardrails. The employer sets a budget ceiling. The worker has set a pay floor. V finds the optimal rate that maximises fill probability while respecting both. The negotiation record is auditable. Both parties see the result and the reasoning.
+Viora supports two rate modes. Standard Rate broadcasts one fixed worker pay rate. Dynamic Rate, available at L3 or above, lets V clear pay within defined guardrails: the employer sets a starting rate and maximum ceiling, the worker sets a pay floor, and the Market Agent selects the fair offer rate that improves fill probability while respecting both. The negotiation record is auditable. Both parties see the result and the reasoning.
 
-No competitor in the flexible staffing market does this. The closest analogue — Jack & Jill — operates only in white-collar permanent hiring and has no compliance, safety, or physical attendance layer. Viora's differentiation is applying two-sided agentic negotiation to regulated, in-person, shift-based work.
+No competitor in the flexible staffing market does this. The closest analogue — Jack & Jill — operates only in white-collar permanent hiring and has no compliance, safety, or physical attendance layer. Viora's differentiation is applying two-sided agentic rate clearing to regulated, in-person, shift-based work.
 
 ### 7.7 Viora Connect — The Agency Bridge
 
@@ -461,7 +461,7 @@ This is the closest Viora gets to replacing a human account manager — not by m
 - **FR-M-004:** Worker offer card — role, location, time, pay, travel, employer context, fit explanation, and countdown to accept.
 - **FR-M-005:** Broadcast strategies — simultaneous top-N, sequential, preferred-first, known-worker-only, auto-book, manual approval.
 - **FR-M-006:** Booking confirmation — worker and employer both receive full assignment details; calendar entry created; backup plan stored.
-- **FR-M-007:** Agent-to-agent negotiation — at L3+, V negotiates pay within defined guardrails. All negotiation events are logged.
+- **FR-M-007:** Dynamic Rate — at L3+, V clears pay within defined guardrails as a distinct mode from Standard Rate. All Dynamic Rate decisions are logged.
 ### 8.5 Shift Lifecycle
 
 - **FR-S-001:** Pre-shift readiness — V checks worker confirmation, travel risk, compliance validity, and site instructions 60–90 minutes before shift start.
@@ -647,7 +647,8 @@ The following core entities are shared across all verticals. Vertical-specific e
 | **Agent Memory** | Persistent context for each employer and worker held by their context agent. Preferences, history, patterns, and learned rules. |
 | **Audit Event** | An immutable record of every system action, AI decision, and human override. Actor, timestamp, inputs, outputs, and outcome. |
 | **GuardrailPolicy** | The set of constraints defining what V can and cannot do autonomously for a specific employer or worker. |
-| **Negotiation Record** | An auditable record of any agent-to-agent pay negotiation: inputs, constraints, outcome, and plain-English explanation. |
+| **Dynamic Rate** | A rate mode where V clears an offer rate between the employer's starting rate/ceiling and the worker's pay floor, available only inside explicit L3+ guardrails. |
+| **Negotiation Record** | An auditable record of a Dynamic Rate clearing decision: inputs, constraints, outcome, and plain-English explanation. |
 | **Feedback** | Post-shift feedback from employer or worker. Stored with shift, aggregated into Passport and fit graph, contestable. |
 
 ## 11. Product Surfaces
@@ -666,7 +667,7 @@ Compliance centre: document status by worker, expiry alerts, eligibility report
 
 Finance: invoices, spend by site/role/period, agency comparison report
 
-Organisation settings: users, roles, sites, rate cards, approval policies, GuardrailPolicy
+Organisation settings: users, roles, sites, rate cards, Standard Rate / Dynamic Rate defaults, approval policies, GuardrailPolicy
 
 Reports and audit: booking history, AI decision log, compliance audit trail
 
@@ -805,7 +806,7 @@ Viora Passport — full portable credential (Phase 1)
 
 Geofenced check-in and biometric liveness (Phase 1)
 
-L3+ agent-to-agent pay negotiation (Phase 1, after track record)
+Dynamic Rate / L3+ rate clearing (Phase 1, after track record)
 
 Viora Pay — earned wage access (Phase 1, legal review first)
 
@@ -826,7 +827,7 @@ L4 full autonomy (Phase 3)
 | Phase | Focus | Headline Outcome | Key Features |
 | --- | --- | --- | --- |
 | **Phase 0** (0–6 months) | Conversational MVP, education pilot | Prove employers talk to V instead of filling in a form; prove swipe deck outconverts list view; prove agentic matching reduces time-to-fill; start collecting clean memory signals | V text/WhatsApp intake, booking engine, candidate ranking, worker feed, check-in/out, timesheets, invoices, admin console, Viora Memory v0 signal capture |
-| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched; memory improves intake, briefings, ranking, and repeat booking | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, L3 autonomy, self-healing v2, pre-shift MIS integration (SIMS / Arbor / Bromcom), bidirectional ratings with incident-report gate, employer knowledge base builder, worker onboarding via V call, reference collection via V call, calendar sync (Google / Outlook iCal), proactive V full rollout (calling, voice notes, WhatsApp), memory controls, Fit Graph v1 signals |
+| **Phase 1** (6–18 months) | Education at scale + Security vertical launch | Viora Passport live and reused across employers and verticals; Viora Pay live; security revenue generating; voice line launched; memory improves intake, briefings, ranking, and repeat booking | Passport v1, Viora Pay, phone voice agent, geofenced check-in, biometric liveness, SIA compliance bundle, Dynamic Rate/L3 autonomy, self-healing v2, pre-shift MIS integration (SIMS / Arbor / Bromcom), bidirectional ratings with incident-report gate, employer knowledge base builder, worker onboarding via V call, reference collection via V call, calendar sync (Google / Outlook iCal), proactive V full rollout (calling, voice notes, WhatsApp), memory controls, Fit Graph v1 signals |
 | **Phase 2** (18–30 months) | Viora Connect + Sector expansion + Agentic intelligence | Agency supply integrated as on-ramp; true-cost-of-cover reporting as market standard; third vertical live; platform intelligence compounds through graph-based memory | Viora Connect API, cross-sector utilisation engine, agency dashboard, true-cost benchmarking, additional vertical (care, hospitality, or events), graph-based Fit Graph, demand forecasting (V predicts cover gaps from school absence patterns and pre-qualifies workers), term-block booking (season-length placements at reduced daily rate), AI-driven DBS Update Service monitoring with V-handled renewal conversations, training marketplace (V identifies skills gaps in worker pool and surfaces CPD), proactive worker retention (V outreach before workers go inactive) |
 | **Phase 3** (30+ months) | Full autonomy + Platform dominance | V trusted for L4 autonomous coordination; Viora positioned as the default infrastructure flexible work runs on | L4 autonomy, full marketplace liquidity, enterprise MAT and multi-site contracts, regulatory relationships, international expansion assessment |
 

@@ -16,6 +16,7 @@ function humanize(s: string): string {
 }
 
 type Message = { role: "employer" | "v"; text: string; ts: string }
+type RateMode = "standard" | "dynamic"
 
 type OrgSite = { id: string; name: string; address: string }
 type OrgUser = { id: string; name: string; email: string; role: string }
@@ -296,6 +297,7 @@ function EmployerAppInner() {
   const [waveState, setWaveState] = useState<WaveState>("rest")
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
+  const [rateMode, setRateMode] = useState<RateMode>("standard")
   const [convId, setConvId] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
@@ -326,7 +328,7 @@ function EmployerAppInner() {
       const res = await fetch(`${API_URL}/v1/intake/parse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organisationId: orgId, rawInput: msg, channel: "web", conversationId: convId }),
+        body: JSON.stringify({ organisationId: orgId, rawInput: msg, rateMode, channel: "web", conversationId: convId }),
       })
       const data = await res.json().catch(() => ({}))
       if (data.conversationId) setConvId(data.conversationId)
@@ -342,7 +344,7 @@ function EmployerAppInner() {
     } finally {
       setLoading(false)
     }
-  }, [convId, loading, orgId])
+  }, [convId, loading, orgId, rateMode])
 
   // Tap the sphere to talk; auto-stops on silence, hard 30s safety cap.
   const startListening = useCallback(() => {
@@ -397,7 +399,31 @@ function EmployerAppInner() {
   const signOut = useCallback(() => { window.location.href = "/" }, [])
 
   const footer = (
-    <div style={{ padding: "12px 16px 16px", display: "flex", gap: 10, alignItems: "center" }}>
+    <div style={{ padding: "12px 16px 16px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", width: 230, background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 10, padding: 3, flexShrink: 0 }}>
+        {(["standard", "dynamic"] as RateMode[]).map(mode => {
+          const active = rateMode === mode
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setRateMode(mode)}
+              style={{
+                border: "none",
+                borderRadius: 8,
+                background: active ? "var(--accent)" : "transparent",
+                color: active ? "#fff" : "var(--muted)",
+                padding: "7px 8px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {mode === "standard" ? "Standard" : "Dynamic"}
+            </button>
+          )
+        })}
+      </div>
       {messages.length > 0 && (
         <button onClick={() => { setMessages([]); setConvId(undefined); setWaveState("rest") }} style={{ background: "transparent", border: "0.5px solid var(--border)", color: "var(--muted)", borderRadius: 10, padding: "9px 11px", fontSize: 12, flexShrink: 0 }}>New</button>
       )}
@@ -406,7 +432,7 @@ function EmployerAppInner() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(input) } }}
-          placeholder={isListening ? "Listening…" : "or type to V…"}
+          placeholder={isListening ? "Listening…" : rateMode === "dynamic" ? "starting rate and max…" : "or type to V…"}
           disabled={loading || isListening}
           style={{ flex: 1, background: "transparent", border: "none", padding: "11px 0", color: "var(--text)", fontSize: 13, outline: "none", fontFamily: "inherit" }}
         />

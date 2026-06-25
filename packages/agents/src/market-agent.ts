@@ -1,6 +1,12 @@
 import { haversineKm } from "@viora/domain";
-import type { PrismaClient } from "@viora/database";
+import type { Offer, Prisma, PrismaClient } from "@viora/database";
 import type { MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
+
+const AUTONOMY_RANK = { L0: 0, L1: 1, L2: 2, L3: 3, L4: 4 } as const;
+
+function hasAtLeastL3(level: keyof typeof AUTONOMY_RANK): boolean {
+  return AUTONOMY_RANK[level] >= AUTONOMY_RANK.L3;
+}
 
 export function createMarketAgent(
   db: PrismaClient,
@@ -246,6 +252,44 @@ export function createMarketAgent(
         };
       }
 
+      const policy = bookingRequest.organisation.guardrailPolicy;
+      const approvedRoleTypes = policy?.approvedRoleTypes ?? [];
+      const roleAllowed =
+        approvedRoleTypes.length === 0 || approvedRoleTypes.includes(bookingRequest.roleType);
+      const standardPayWithinBudget =
+        (policy?.budgetCeiling == null || bookingRequest.payRate <= policy.budgetCeiling) &&
+        (policy?.payFloor == null || bookingRequest.payRate >= policy.payFloor);
+
+      if (!roleAllowed || (bookingRequest.rateMode === "standard" && !standardPayWithinBudget)) {
+        await db.auditEvent.create({
+          data: {
+            actorType: "agent",
+            actorId: "market",
+            action: "offers.broadcast",
+            entityType: "BookingRequest",
+            entityId: bookingRequestId,
+            inputs: { bookingRequestId, strategy, autonomyLevel },
+            outputs: {
+              rateMode: bookingRequest.rateMode,
+              roleAllowed,
+              payWithinBudget: standardPayWithinBudget,
+              roleType: bookingRequest.roleType,
+              payRate: bookingRequest.payRate,
+              budgetCeiling: policy?.budgetCeiling ?? null,
+              payFloor: policy?.payFloor ?? null,
+            },
+            outcome: "blocked_guardrails",
+          },
+        });
+        return {
+          success: false,
+          data: [],
+          explanation: "Booking request exceeds organisation guardrails.",
+          requiresHumanApproval: true,
+          auditPayload: { bookingRequestId, roleAllowed, payWithinBudget: standardPayWithinBudget },
+        };
+      }
+
       const matches = await db.match.findMany({
         where: { bookingRequestId },
         orderBy: { rank: "asc" },
@@ -283,21 +327,205 @@ export function createMarketAgent(
       const newMatches = selectedMatches.filter((m) => !alreadyOffered.has(m.workerId));
 
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const offers = await Promise.all(
-        newMatches.map((match) =>
-          db.offer.create({
+      const dynamicDecisions: Record<
+        string,
+        { payRate: number; workerFloor: number; cap: number; explanation: string }
+      > = {};
+
+      if (bookingRequest.rateMode === "dynamic") {
+        if (!hasAtLeastL3(autonomyLevel)) {
+          await db.auditEvent.create({
+            data: {
+              actorType: "agent",
+              actorId: "market",
+              action: "offers.broadcast",
+              entityType: "BookingRequest",
+              entityId: bookingRequestId,
+              inputs: { bookingRequestId, strategy, autonomyLevel },
+              outputs: { rateMode: "dynamic", requiredAutonomyLevel: "L3" },
+              outcome: "blocked_dynamic_rate_autonomy",
+            },
+          });
+          return {
+            success: false,
+            data: [],
+            explanation: "Dynamic Rate requires L3 autonomy or above.",
+            requiresHumanApproval: true,
+            auditPayload: { bookingRequestId, rateMode: "dynamic", autonomyLevel },
+          };
+        }
+
+        if (bookingRequest.maxPayRate == null) {
+          await db.auditEvent.create({
+            data: {
+              actorType: "agent",
+              actorId: "market",
+              action: "offers.broadcast",
+              entityType: "BookingRequest",
+              entityId: bookingRequestId,
+              inputs: { bookingRequestId, strategy, autonomyLevel },
+              outputs: { rateMode: "dynamic", maxPayRate: null },
+              outcome: "blocked_dynamic_rate_missing_ceiling",
+            },
+          });
+          return {
+            success: false,
+            data: [],
+            explanation: "Dynamic Rate requires a maximum rate ceiling.",
+            requiresHumanApproval: true,
+            auditPayload: { bookingRequestId, rateMode: "dynamic", error: "missing_max_pay_rate" },
+          };
+        }
+
+        const employerCap = Math.min(
+          bookingRequest.maxPayRate,
+          policy?.budgetCeiling ?? bookingRequest.maxPayRate,
+        );
+        if (employerCap < bookingRequest.payRate) {
+          await db.auditEvent.create({
+            data: {
+              actorType: "agent",
+              actorId: "market",
+              action: "offers.broadcast",
+              entityType: "BookingRequest",
+              entityId: bookingRequestId,
+              inputs: { bookingRequestId, strategy, autonomyLevel },
+              outputs: {
+                rateMode: "dynamic",
+                payRate: bookingRequest.payRate,
+                maxPayRate: bookingRequest.maxPayRate,
+                budgetCeiling: policy?.budgetCeiling ?? null,
+                employerCap,
+              },
+              outcome: "blocked_dynamic_rate_invalid_range",
+            },
+          });
+          return {
+            success: false,
+            data: [],
+            explanation: "Dynamic Rate ceiling is below the starting rate.",
+            requiresHumanApproval: true,
+            auditPayload: { bookingRequestId, rateMode: "dynamic", error: "invalid_rate_range" },
+          };
+        }
+
+        const workerPolicies = await db.guardrailPolicy.findMany({
+          where: { workerId: { in: newMatches.map((match) => match.workerId) } },
+          select: { workerId: true, payFloor: true },
+        });
+        const workerPayFloors = new Map(
+          workerPolicies
+            .filter((workerPolicy) => workerPolicy.workerId != null)
+            .map((workerPolicy) => [workerPolicy.workerId as string, workerPolicy.payFloor]),
+        );
+
+        for (const match of newMatches) {
+          const workerFloor = workerPayFloors.get(match.workerId);
+          if (workerFloor == null) continue;
+          if (workerFloor > employerCap) continue;
+
+          const payRate = Number(Math.max(bookingRequest.payRate, workerFloor).toFixed(2));
+          dynamicDecisions[match.workerId] = {
+            payRate,
+            workerFloor,
+            cap: employerCap,
+            explanation:
+              `Dynamic Rate cleared at GBP ${payRate}: starting rate GBP ${bookingRequest.payRate}, ` +
+              `worker floor GBP ${workerFloor}, ceiling GBP ${employerCap}.`,
+          };
+        }
+
+        if (newMatches.length > 0 && Object.keys(dynamicDecisions).length === 0) {
+          await db.auditEvent.create({
+            data: {
+              actorType: "agent",
+              actorId: "market",
+              action: "offers.broadcast",
+              entityType: "BookingRequest",
+              entityId: bookingRequestId,
+              inputs: { bookingRequestId, strategy, autonomyLevel },
+              outputs: {
+                rateMode: "dynamic",
+                selectedWorkerIds: newMatches.map((match) => match.workerId),
+                maxPayRate: bookingRequest.maxPayRate,
+                budgetCeiling: policy?.budgetCeiling ?? null,
+              },
+              outcome: "blocked_dynamic_rate_no_clearable_workers",
+            },
+          });
+          return {
+            success: false,
+            data: [],
+            explanation: "Dynamic Rate could not clear because selected workers have no pay floor or exceed the ceiling.",
+            requiresHumanApproval: true,
+            auditPayload: { bookingRequestId, rateMode: "dynamic", error: "no_clearable_workers" },
+          };
+        }
+      }
+
+      const offers = await db.$transaction(async (tx) => {
+        const createdOffers: Offer[] = [];
+        for (const match of newMatches) {
+          const dynamicDecision = dynamicDecisions[match.workerId];
+          if (bookingRequest.rateMode === "dynamic" && !dynamicDecision) continue;
+          const offerPayRate = dynamicDecision?.payRate ?? bookingRequest.payRate;
+          const fitExplanation = dynamicDecision
+            ? `${match.reasoning}. ${dynamicDecision.explanation}`
+            : match.reasoning;
+
+          const offer = await tx.offer.create({
             data: {
               bookingRequestId,
               workerId: match.workerId,
               matchId: match.id,
-              payRate: bookingRequest.payRate,
-              fitExplanation: match.reasoning,
+              payRate: offerPayRate,
+              fitExplanation,
               expiresAt,
               status: "pending",
             },
-          }),
-        ),
-      );
+          });
+          createdOffers.push(offer);
+
+          if (dynamicDecision) {
+            await tx.negotiationRecord.create({
+              data: {
+                bookingRequestId,
+                workerId: match.workerId,
+                employerCeiling: dynamicDecision.cap,
+                workerFloor: dynamicDecision.workerFloor,
+                agreedRate: dynamicDecision.payRate,
+                explanation: dynamicDecision.explanation,
+              },
+            });
+
+            await tx.auditEvent.create({
+              data: {
+                actorType: "agent",
+                actorId: "market",
+                action: "dynamic_rate.clear",
+                entityType: "Offer",
+                entityId: offer.id,
+                inputs: {
+                  bookingRequestId,
+                  workerId: match.workerId,
+                  startingRate: bookingRequest.payRate,
+                  maxPayRate: bookingRequest.maxPayRate,
+                  budgetCeiling: policy?.budgetCeiling ?? null,
+                  workerFloor: dynamicDecision.workerFloor,
+                } as Prisma.InputJsonValue,
+                outputs: {
+                  offerId: offer.id,
+                  agreedRate: dynamicDecision.payRate,
+                  employerCeiling: dynamicDecision.cap,
+                  explanation: dynamicDecision.explanation,
+                } as Prisma.InputJsonValue,
+                outcome: "cleared",
+              },
+            });
+          }
+        }
+        return createdOffers;
+      });
 
       await db.bookingRequest.update({
         where: { id: bookingRequestId },
@@ -316,6 +544,7 @@ export function createMarketAgent(
             offerCount: offers.length,
             offerIds: offers.map((o) => o.id),
             requiresHumanApproval,
+            rateMode: bookingRequest.rateMode,
           },
           outcome: requiresHumanApproval ? "queued_for_approval" : "offers_sent",
         },

@@ -120,6 +120,12 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
 
     const br = offer.bookingRequest;
     const site = br?.site;
+    const negotiation = br?.rateMode === "dynamic"
+      ? await app.db.negotiationRecord.findFirst({
+          where: { bookingRequestId: offer.bookingRequestId, workerId: id },
+          orderBy: { createdAt: "desc" },
+        })
+      : null;
 
     let travelMinutes: number | undefined;
     if (
@@ -135,6 +141,8 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       role: br?.roleType ? roleLabel(br.roleType) : "Shift",
       site: site?.name ?? "",
       payPerDay: offer.payRate,
+      rateMode: br?.rateMode ?? "standard",
+      rateExplanation: negotiation?.explanation,
       travelMinutes,
       fitReason: offer.fitExplanation,
       shiftDate: br?.startAt ? offerDateFmt.format(new Date(br.startAt)) : undefined,

@@ -16,6 +16,8 @@ interface ShiftOffer {
   roleType: string;
   siteName: string;
   payRate: number;
+  rateMode?: "standard" | "dynamic";
+  rateExplanation?: string;
   travelMinutes?: number;
   fitExplanation: string;
 }
@@ -24,18 +26,20 @@ function mapOfferFromApi(raw: Record<string, unknown>): ShiftOffer {
   const bookingRequest = raw.bookingRequest as {
     roleType?: string;
     site?: { name?: string };
-  };
+  } | undefined;
   const fitExplanation = String(raw.fitExplanation ?? "This shift matches your profile.");
   const kmMatch = fitExplanation.match(/(\d+(?:\.\d+)?)\s*km/i);
   const travelMinutes = kmMatch ? Math.round(parseFloat(kmMatch[1]) / 0.5) : undefined;
 
   return {
     id: String(raw.id),
-    roleType: bookingRequest?.roleType ?? "Shift",
-    siteName: bookingRequest?.site?.name ?? "Site TBC",
-    payRate: Number(raw.payRate ?? 0),
-    travelMinutes,
-    fitExplanation,
+    roleType: String(raw.role ?? bookingRequest?.roleType ?? "Shift"),
+    siteName: String(raw.site ?? bookingRequest?.site?.name ?? "Site TBC"),
+    payRate: Number(raw.payPerDay ?? raw.payRate ?? 0),
+    rateMode: raw.rateMode === "dynamic" ? "dynamic" : "standard",
+    rateExplanation: typeof raw.rateExplanation === "string" ? raw.rateExplanation : undefined,
+    travelMinutes: typeof raw.travelMinutes === "number" ? raw.travelMinutes : travelMinutes,
+    fitExplanation: String(raw.fitReason ?? fitExplanation),
   };
 }
 
@@ -51,11 +55,11 @@ export default function SwipeDeckScreen() {
     try {
       const res = await fetch(`${API_URL}/v1/workers/${WORKER_ID}/offer`);
       const data = await res.json();
-      if (data.data) {
-        setOffer(mapOfferFromApi(data.data));
+      if (data.offer ?? data.data) {
+        setOffer(mapOfferFromApi(data.offer ?? data.data));
       } else {
         setOffer(null);
-        setMessage(data.explanation ?? "No pending offers right now.");
+        setMessage(data.message ?? data.explanation ?? "No pending offers right now.");
       }
     } catch {
       setOffer(null);
@@ -109,11 +113,17 @@ export default function SwipeDeckScreen() {
           <View style={styles.card}>
             <Text style={styles.role}>{offer.roleType}</Text>
             <Text style={styles.site}>{offer.siteName}</Text>
+            {offer.rateMode === "dynamic" && (
+              <Text style={styles.dynamic}>Dynamic Rate</Text>
+            )}
             <Text style={styles.pay}>£{offer.payRate}/day</Text>
             {offer.travelMinutes != null && (
               <Text style={styles.meta}>{offer.travelMinutes} min travel</Text>
             )}
             <Text style={styles.fit}>{offer.fitExplanation}</Text>
+            {offer.rateMode === "dynamic" && offer.rateExplanation && (
+              <Text style={styles.dynamicExplanation}>{offer.rateExplanation}</Text>
+            )}
             <View style={styles.actions}>
               <Pressable
                 style={[styles.btn, styles.decline, acting && styles.btnDisabled]}
@@ -163,8 +173,10 @@ const styles = StyleSheet.create({
   role: { color: "#f0f4f8", fontSize: 20, fontWeight: "600" },
   site: { color: "#94a3b8", fontSize: 16, marginTop: 4 },
   pay: { color: "#22c55e", fontSize: 28, fontWeight: "700", marginTop: 16 },
+  dynamic: { color: "#22c55e", fontSize: 12, fontWeight: "600", marginTop: 8 },
   meta: { color: "#94a3b8", marginTop: 8 },
   fit: { color: "#cbd5e1", marginTop: 16, lineHeight: 22 },
+  dynamicExplanation: { color: "#86efac", marginTop: 12, lineHeight: 20 },
   actions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btn: { flex: 1, padding: 14, borderRadius: 10, alignItems: "center" },
   btnDisabled: { opacity: 0.6 },

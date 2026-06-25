@@ -9,8 +9,13 @@ const INTENT_SCHEMA = {
     siteName: { type: "string", description: "Human-readable site/school name as the employer wrote it" },
     startAt: { type: "string", description: "ISO 8601 datetime for shift start" },
     endAt: { type: "string", description: "ISO 8601 datetime for shift end" },
+    rateMode: {
+      type: "string",
+      enum: ["standard", "dynamic"],
+      description: "standard for one fixed rate, dynamic when the employer explicitly asks V to adjust within a range",
+    },
     payRate: { type: "number", description: "Hourly pay rate in GBP if stated" },
-    maxPayRate: { type: "number", description: "Maximum hourly pay rate in GBP if stated" },
+    maxPayRate: { type: "number", description: "Maximum hourly pay rate in GBP if a Dynamic Rate range or ceiling is stated" },
     requirements: {
       type: "object",
       description: "Any additional requirements (DBS level, subject specialism, etc.)",
@@ -78,6 +83,7 @@ Rules:
       siteName: raw["siteName"] as string | undefined,
       startAt: new Date(raw["startAt"] as string),
       endAt: new Date(raw["endAt"] as string),
+      rateMode: raw["rateMode"] as ParsedBookingIntent["rateMode"],
       payRate: raw["payRate"] as number | undefined,
       maxPayRate: raw["maxPayRate"] as number | undefined,
       requirements: raw["requirements"] as Record<string, unknown> | undefined,

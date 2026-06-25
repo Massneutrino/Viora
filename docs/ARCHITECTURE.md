@@ -63,7 +63,7 @@ Core entities (see `packages/database/prisma/schema.prisma`):
 
 **In scope:** text + WhatsApp intake, manual compliance verification, L1–L2 autonomy, check-in/out, timesheets, invoice export, employer web + worker mobile + admin console.
 
-**Out of scope:** phone voice agent, full Passport v1, geofenced check-in, L3+ negotiation, Viora Pay, security vertical, Viora Connect API.
+**Out of scope:** phone voice agent, full Passport v1, geofenced check-in, Dynamic Rate/L3+ negotiation rollout, Viora Pay, security vertical, Viora Connect API.
 
 ## Build order (recommended)
 

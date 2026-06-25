@@ -10,6 +10,7 @@ import type {
   MemorySubjectType,
   MemoryUseScope,
   Offer,
+  RateMode,
 } from "@viora/domain";
 
 /** Parsed staffing intent from natural language intake. */
@@ -19,6 +20,7 @@ export interface ParsedBookingIntent {
   siteName?: string;
   startAt: Date;
   endAt: Date;
+  rateMode?: RateMode;
   payRate?: number;
   maxPayRate?: number;
   requirements?: Record<string, unknown>;

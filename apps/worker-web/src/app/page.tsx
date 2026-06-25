@@ -54,6 +54,8 @@ type Offer = {
   role: string
   site: string
   payPerDay: number
+  rateMode?: "standard" | "dynamic"
+  rateExplanation?: string
   travelMinutes?: number
   fitReason?: string
   shiftDate?: string
@@ -630,7 +632,7 @@ function WorkerAppInner() {
                   </div>
                   <div style={{ background: "rgba(31,157,87,0.1)", border: "1px solid rgba(31,157,87,0.25)", borderRadius: 10, padding: "7px 11px", textAlign: "center" }}>
                     <p style={{ color: "var(--success)", fontSize: 18, fontWeight: 700, margin: 0 }}>£{offer.payPerDay}</p>
-                    <p style={{ color: "#1f9d57", fontSize: 9, margin: "1px 0 0" }}>/day</p>
+                    <p style={{ color: "#1f9d57", fontSize: 9, margin: "1px 0 0" }}>{offer.rateMode === "dynamic" ? "Dynamic Rate" : "/day"}</p>
                   </div>
                 </div>
 
@@ -648,6 +650,13 @@ function WorkerAppInner() {
                   <div style={{ background: "rgba(31,77,255,0.06)", border: "1px solid rgba(31,77,255,0.18)", borderRadius: 11, padding: "10px 12px", marginBottom: 14 }}>
                     <p style={{ color: "var(--muted)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Why V chose this</p>
                     <p style={{ color: "#1a3fd0", fontSize: 12, lineHeight: 1.5, margin: 0 }}>{offer.fitReason}</p>
+                  </div>
+                )}
+
+                {offer.rateMode === "dynamic" && offer.rateExplanation && (
+                  <div style={{ background: "rgba(31,157,87,0.07)", border: "1px solid rgba(31,157,87,0.2)", borderRadius: 11, padding: "10px 12px", marginBottom: 14 }}>
+                    <p style={{ color: "var(--muted)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Dynamic Rate</p>
+                    <p style={{ color: "#1f7a45", fontSize: 12, lineHeight: 1.5, margin: 0 }}>{offer.rateExplanation}</p>
                   </div>
                 )}
 

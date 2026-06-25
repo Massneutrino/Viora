@@ -32,8 +32,8 @@ Earned wage access — workers can draw earned pay same-day after shift completi
 **Automated Compliance**
 Replace manual compliance queue with API integrations: DBS online, Right to Work digital checks, prohibition register lookup. Compliance becomes real-time rather than batched.
 
-**L3 Autonomy**
-Agent-driven pay negotiation within guardrail bounds. Market Agent proposes a rate; employer and worker guardrails approve or escalate automatically.
+**Dynamic Rate / L3 Autonomy**
+Dynamic Rate is the Phase 1 rate mode alongside Standard Rate. Standard Rate broadcasts one fixed `payRate`; Dynamic Rate lets the Market Agent clear an offer rate between the employer's starting rate/ceiling and the worker's pay floor. Employer and worker guardrails approve or escalate automatically, and every cleared rate is recorded for audit and explanation.
 
 **Memory Controls**
 Employer and worker screens show "what V remembers" with view, edit, delete, source, scope, sensitivity, connector eligibility, and private controls. Important inferred or imported memories are confirmed before V relies on them operationally. Live third-party memory connectors can start here, but must sit behind the Phase 0 review-gated import/export foundation.

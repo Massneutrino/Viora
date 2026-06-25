@@ -9,6 +9,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 **Remaining for Phase 0 close-out (4 items):** Guardrails enforcement (2) · WhatsApp channel (2)
 
 **Recent fixes (review follow-up):**
+- Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection, Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation, and admin visibility. Phase 0 remains Standard Rate by default.
 - Demo sandbox in admin console - deterministic scenarios for single-loop booking, all-avatar market day, compliance unlock and replacement recovery; API endpoints live under `/v1/admin/sandbox/*` and sandbox data is tagged with `[sandbox:<runId>]`
 - Mobile swipe deck calls accept/decline API — `apps/mobile/app/index.tsx`
 - Worker web preview for browser testing — `apps/worker-web` at http://localhost:6102 (same API flow as mobile; `demo-worker`)
@@ -75,6 +76,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Replace `stubMarketAgent.rankCandidates()` — score workers by commute radius, role match, `Passport` status, reliability score (`packages/agents/src/market-agent.ts`)
 - ✅ Replace `stubMarketAgent.broadcastOffers()` — write `Offer` rows per strategy + autonomy level; `POST /v1/bookings/:id/broadcast` triggers it (`packages/agents/src/market-agent.ts`)
 - ✅ Replace `stubMarketAgent.estimateFillProbability()` — heuristic: eligible pool size × historical acceptance rate (`packages/agents/src/market-agent.ts`)
+- 🔄 Dynamic Rate foundation — schema/API/agent support exists for Phase 1 L3 clearing, but Phase 0 remains Standard Rate; full rollout waits on guardrail queues and approval UX.
 
 ## Worker Feed
 
@@ -120,6 +122,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 - 🔲 Enforce `GuardrailPolicy` (autonomyLevel, budgetCeiling, payFloor, approvedRoleTypes) before every autonomous agent action
 - 🔲 When `requiresHumanApproval: true`, queue action to admin console rather than auto-proceeding
+- 🔄 Dynamic Rate guardrails — Market Agent blocks Dynamic Rate below L3, without `maxPayRate`, without worker pay floors, or when floors exceed the employer ceiling; full generic action queue remains TODO.
 
 ## Audit Logging
 

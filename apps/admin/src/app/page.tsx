@@ -3,6 +3,7 @@ import type { ComplianceQueueItem } from "./compliance-queue";
 import {
   EMPTY_STATS,
   type AuditEvent,
+  type DynamicRateRecord,
   type MarketHealth,
   type MemoryReviewItem,
   type MemoryLabState,
@@ -24,7 +25,7 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function AdminConsole() {
-  const [unfilledData, marketHealth, complianceData, memoryData, pilotLeadData, auditData, stats, memoryLab] =
+  const [unfilledData, marketHealth, complianceData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab] =
     await Promise.all([
       getJson<{ unfilled: UnfilledShift[] }>("/v1/admin/ops/unfilled", { unfilled: [] }),
       getJson<MarketHealth>("/v1/admin/ops/market-health", {}),
@@ -32,6 +33,7 @@ export default async function AdminConsole() {
       getJson<{ memories: MemoryReviewItem[] }>("/v1/admin/memory/pending", { memories: [] }),
       getJson<{ leads: PilotLead[] }>("/v1/admin/pilot/leads", { leads: [] }),
       getJson<{ events: AuditEvent[] }>("/v1/admin/audit", { events: [] }),
+      getJson<{ negotiations: DynamicRateRecord[] }>("/v1/admin/negotiations", { negotiations: [] }),
       getJson<OpsStats>("/v1/admin/ops/stats", EMPTY_STATS),
       getJson<MemoryLabState>("/v1/admin/sandbox/memory-lab/state", {
         organisations: [],
@@ -53,6 +55,7 @@ export default async function AdminConsole() {
         memory: memoryData.memories,
         pilotLeads: pilotLeadData.leads,
         audit: auditData.events,
+        negotiations: negotiationsData.negotiations,
         stats,
         memoryLab,
       }}

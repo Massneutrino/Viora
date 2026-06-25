@@ -68,6 +68,8 @@ export type BroadcastStrategy =
   | "auto_book"
   | "manual_approval";
 
+export type RateMode = "standard" | "dynamic";
+
 export type ConversationChannel = "app" | "whatsapp" | "voice" | "phone" | "web";
 
 export type ActorType = "user" | "agent" | "system" | "admin";
@@ -196,6 +198,7 @@ export interface BookingRequest {
   roleType: string;
   startAt: Date;
   endAt: Date;
+  rateMode: RateMode;
   payRate: number;
   maxPayRate?: number;
   requirements?: Record<string, unknown>;

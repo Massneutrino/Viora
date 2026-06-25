@@ -126,6 +126,33 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return { events };
   });
 
+  app.get("/negotiations", async () => {
+    const negotiations = await app.db.negotiationRecord.findMany({
+      take: 50,
+      orderBy: { createdAt: "desc" },
+    });
+    const bookingRequestIds = [...new Set(negotiations.map((record) => record.bookingRequestId))];
+    const bookingRequests = await app.db.bookingRequest.findMany({
+      where: { id: { in: bookingRequestIds } },
+      select: {
+        id: true,
+        roleType: true,
+        rateMode: true,
+        payRate: true,
+        maxPayRate: true,
+        site: { select: { name: true } },
+        organisation: { select: { name: true } },
+      },
+    });
+    const byId = new Map(bookingRequests.map((bookingRequest) => [bookingRequest.id, bookingRequest]));
+    return {
+      negotiations: negotiations.map((record) => ({
+        ...record,
+        bookingRequest: byId.get(record.bookingRequestId) ?? null,
+      })),
+    };
+  });
+
   app.get("/pilot/leads", async () => {
     const leads = await app.db.pilotLead.findMany({
       take: 50,

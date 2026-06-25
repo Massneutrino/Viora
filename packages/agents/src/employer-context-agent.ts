@@ -141,8 +141,8 @@ export function createEmployerContextAgent(
       const roleAllowed =
         approvedRoleTypes.length === 0 || approvedRoleTypes.includes(bookingRequest.roleType);
       const payWithinBudget =
-        (policy.budgetCeiling == null || bookingRequest.payRate <= policy.budgetCeiling) &&
-        (policy.payFloor == null || bookingRequest.payRate >= policy.payFloor);
+        (policy.budgetCeiling == null || offer.payRate <= policy.budgetCeiling) &&
+        (policy.payFloor == null || offer.payRate >= policy.payFloor);
 
       if (!roleAllowed || !payWithinBudget) {
         const explanation = "Booking request exceeds organisation guardrails.";
@@ -186,8 +186,9 @@ export function createEmployerContextAgent(
         };
       }
 
-      const vioraFee = Number((bookingRequest.payRate * VIORA_FEE_RATE).toFixed(2));
-      const totalCost = Number((bookingRequest.payRate + vioraFee).toFixed(2));
+      const acceptedPayRate = offer.payRate;
+      const vioraFee = Number((acceptedPayRate * VIORA_FEE_RATE).toFixed(2));
+      const totalCost = Number((acceptedPayRate + vioraFee).toFixed(2));
       const complianceSnapshot = {
         checkedAt: new Date().toISOString(),
         eligible: eligibility.eligible,
@@ -228,7 +229,7 @@ export function createEmployerContextAgent(
               roleType: bookingRequest.roleType,
               startAt: bookingRequest.startAt,
               endAt: bookingRequest.endAt,
-              payRate: bookingRequest.payRate,
+              payRate: acceptedPayRate,
               vioraFee,
               totalCost,
               complianceSnapshot,
@@ -261,7 +262,7 @@ export function createEmployerContextAgent(
               roleType: bookingRequest.roleType,
               startAt: bookingRequest.startAt,
               endAt: bookingRequest.endAt,
-              payRate: bookingRequest.payRate,
+              payRate: acceptedPayRate,
               vioraFee,
               totalCost,
               backupWorkerIds: [],
@@ -310,6 +311,7 @@ export function createEmployerContextAgent(
               bookingId: confirmedBooking.id,
               shiftStatus: "scheduled",
               bookingRequestStatus: "filled",
+              payRate: acceptedPayRate,
               vioraFee,
               totalCost,
               complianceSnapshot,
@@ -331,14 +333,16 @@ export function createEmployerContextAgent(
             subjectId: booking.id,
             sourceRefType: "Booking",
             sourceRefId: booking.id,
-            text: `Booking confirmed for ${bookingRequest.roleType} at ${bookingRequest.site.name}. Worker ${workerId} accepted at pay rate ${bookingRequest.payRate}.`,
+            text: `Booking confirmed for ${bookingRequest.roleType} at ${bookingRequest.site.name}. Worker ${workerId} accepted at pay rate ${acceptedPayRate}.`,
             data: {
               bookingRequestId,
               offerId,
               workerId,
               siteId: bookingRequest.siteId,
               roleType: bookingRequest.roleType,
-              payRate: bookingRequest.payRate,
+              payRate: acceptedPayRate,
+              bookingRequestPayRate: bookingRequest.payRate,
+              rateMode: bookingRequest.rateMode,
             },
           })
           .catch(() => undefined);
