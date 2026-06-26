@@ -211,7 +211,7 @@ export default function PilotPage() {
             icon={<Icon name="building" />}
             title="For organisations"
             copy="Real-time cover. Full compliance. Lower costs."
-            action="Tell V you're hiring"
+            action="I'm hiring"
             primary
             onClick={() => seedConversation("I need to fill shifts")}
           />
@@ -220,7 +220,7 @@ export default function PilotPage() {
             icon={<Icon name="person" />}
             title="For workers"
             copy="Better shifts. Fair pay. More control."
-            action="Tell V you want work"
+            action="I want work"
             onClick={() => seedConversation("I'm looking for work")}
           />
         </div>
