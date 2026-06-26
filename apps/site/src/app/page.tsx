@@ -170,9 +170,6 @@ export default function PilotPage() {
           <Wordmark scale={0.9} />
         </a>
         <nav aria-label="Site navigation">
-          <a href="#organisations">For organisations</a>
-          <a href="#workers">For workers</a>
-          <a href="#memory">Why Viora</a>
           <a className="sign-in" href="/register">
             Sign in
           </a>

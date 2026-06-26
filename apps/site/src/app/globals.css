@@ -1221,18 +1221,12 @@ h2 {
 
 /* Responsive */
 @media (max-width: 900px) {
-  .pilot-nav nav a:not(.sign-in) {
-    display: none;
-  }
   .proof-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 680px) {
-  .sign-in {
-    display: none;
-  }
   h1 {
     font-size: clamp(2.8rem, 13vw, 4rem);
   }
