@@ -694,6 +694,35 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  /** GET /v1/admin/timesheets/pending — unapproved timesheets for the ops console. */
+  app.get("/timesheets/pending", async () => {
+    const pending = await app.db.timesheet.findMany({
+      where: { approved: false },
+      include: {
+        worker: { select: { id: true, firstName: true, lastName: true } },
+        booking: { select: { roleType: true, startAt: true, endAt: true, payRate: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    return { pending };
+  });
+
+  /** GET /v1/admin/bookings/ops — bookings eligible for cancel / reopen actions. */
+  app.get("/bookings/ops", async () => {
+    const bookings = await app.db.booking.findMany({
+      where: { status: { in: ["confirmed", "at_risk", "cancelled", "pre_shift_check"] } },
+      include: {
+        worker: { select: { firstName: true, lastName: true } },
+        site: { select: { name: true } },
+        bookingRequest: { select: { id: true, status: true } },
+      },
+      orderBy: { startAt: "asc" },
+      take: 50,
+    });
+    return { bookings };
+  });
+
   /** POST /v1/admin/timesheets/:id/approve */
   app.post("/timesheets/:id/approve", async (request, reply) => {
     const { id } = request.params as { id: string };

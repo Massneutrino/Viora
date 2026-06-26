@@ -1,6 +1,8 @@
 import type { ApprovalQueueItem } from "./approvals-queue";
+import type { BookingOpsItem } from "./bookings-ops";
 import { ConsoleShell } from "./console-shell";
 import type { ComplianceQueueItem } from "./compliance-queue";
+import type { PendingTimesheet } from "./timesheets-queue";
 import {
   EMPTY_STATS,
   type AuditEvent,
@@ -26,7 +28,7 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function AdminConsole() {
-  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab] =
+  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab, timesheetsData, bookingOpsData] =
     await Promise.all([
       getJson<{ unfilled: UnfilledShift[] }>("/v1/admin/ops/unfilled", { unfilled: [] }),
       getJson<MarketHealth>("/v1/admin/ops/market-health", {}),
@@ -46,6 +48,8 @@ export default async function AdminConsole() {
         pending: [],
         audit: [],
       }),
+      getJson<{ pending: PendingTimesheet[] }>("/v1/admin/timesheets/pending", { pending: [] }),
+      getJson<{ bookings: BookingOpsItem[] }>("/v1/admin/bookings/ops", { bookings: [] }),
     ]);
 
   return (
@@ -61,6 +65,8 @@ export default async function AdminConsole() {
         negotiations: negotiationsData.negotiations,
         stats,
         memoryLab,
+        pendingTimesheets: timesheetsData.pending,
+        bookingOps: bookingOpsData.bookings,
       }}
     />
   );

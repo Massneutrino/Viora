@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { PHASE_0_MUST_HAVE } from "@viora/domain";
 import { ApprovalsQueue, type ApprovalQueueItem } from "./approvals-queue";
+import { BookingsOps, type BookingOpsItem, type UnfilledShift } from "./bookings-ops";
 import { ComplianceQueue, type ComplianceQueueItem } from "./compliance-queue";
 import { MemoryReview, type MemoryReviewItem } from "./memory-review";
 import { MemoryLab, type MemoryLabState } from "./memory-lab";
@@ -8,6 +9,7 @@ import { DemoPersonas } from "./demo-personas";
 import { SandboxPanel } from "./sandbox-panel";
 import { BreakdownPanel, MiniStat } from "./analytics";
 import { LeadActions } from "./pilot-approve";
+import { TimesheetsQueue, type PendingTimesheet } from "./timesheets-queue";
 import {
   EMPTY_STATS,
   Panel,
@@ -20,11 +22,7 @@ import {
 
 export type { MemoryReviewItem };
 export type { MemoryLabState };
-
-export interface UnfilledShift {
-  bookingRequestId: string;
-  urgency: string;
-}
+export type { UnfilledShift } from "./bookings-ops";
 
 export interface MarketHealth {
   unfilledCount?: number;
@@ -86,6 +84,8 @@ export interface ConsoleData {
   negotiations: DynamicRateRecord[];
   stats: OpsStats;
   memoryLab: MemoryLabState;
+  pendingTimesheets: PendingTimesheet[];
+  bookingOps: BookingOpsItem[];
 }
 
 const RECOVERY_ACTIONS = [
@@ -192,7 +192,8 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
 
 // ── Operations ────────────────────────────────────────────────────────────────
 export function OperationsSection({ data }: { data: ConsoleData }) {
-  const { compliance, approvals, memory, unfilled, audit, negotiations } = data;
+  const { compliance, approvals, memory, unfilled, audit, negotiations, pendingTimesheets, bookingOps } =
+    data;
   const recovery = audit.filter((e) => RECOVERY_ACTIONS.includes(e.action));
 
   return (
@@ -203,14 +204,14 @@ export function OperationsSection({ data }: { data: ConsoleData }) {
       <Panel title="Approvals queue" description="Guardrail-blocked actions awaiting human sign-off">
         <ApprovalsQueue initial={approvals} />
       </Panel>
+      <Panel title="Timesheets" description="Unapproved timesheets awaiting sign-off">
+        <TimesheetsQueue initial={pendingTimesheets} />
+      </Panel>
       <Panel title="Memory review" description="Inferred memories pending confirmation">
         <MemoryReview initial={memory} />
       </Panel>
-      <Panel title="Unfilled shifts" description="Ops Agent dashboard">
-        <SimpleList
-          empty="No unfilled shifts"
-          items={unfilled.map((item) => `${item.bookingRequestId} · ${item.urgency}`)}
-        />
+      <Panel title="Unfilled shifts & bookings" description="Broadcast, assign, cancel, and reopen">
+        <BookingsOps initialUnfilled={unfilled} initialBookings={bookingOps} />
       </Panel>
       <Panel title="Recovery activity" description="Cancellations, reopens, replacements">
         <SimpleList

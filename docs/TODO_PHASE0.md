@@ -146,7 +146,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Memory lab + review panels — create/edit/forget demo memories and confirm `pending_confirmation` entries (`apps/admin/src/app/{memory-lab,memory-review}.tsx`, `GET /v1/admin/memory/pending`)
 - ✅ Pilot leads tab — list waitlist leads and **Approve & mint** into real org/worker accounts (`apps/admin/src/app/pilot-approve.tsx`, `POST /v1/admin/pilot/leads/:id/approve`)
 - ✅ Dynamic Rate panel on ops dash — recent `NegotiationRecord` rows with floor/ceiling/rate (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`)
-- 🔄 Admin mutation UI — compliance verify/reject now interactive (✅); approve timesheets, broadcast, and assign/cancel still API-only (post-MVP polish)
+- ✅ Admin mutation UI — compliance verify/reject, timesheet approve, booking broadcast/assign/cancel/reopen (`apps/admin/src/app/{compliance-queue,timesheets-queue,bookings-ops}.tsx`, `GET /v1/admin/timesheets/pending`, `GET /v1/admin/bookings/ops`)
 
 ## WhatsApp Channel
 
