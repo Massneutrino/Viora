@@ -12,6 +12,12 @@ export interface LLMClient {
   }): Promise<T>;
 }
 
+export type LLMTask = "parseIntent" | "clarify" | "confirmIntent" | "explainFit";
+
+export type CreateLLMClientOptions = {
+  task?: LLMTask;
+};
+
 type StructuredOpts = {
   system: string;
   prompt: string;
@@ -25,16 +31,34 @@ type StructuredOpts = {
 type GoogleGenerateContentResult = { response: any };
 
 const LLM_CALL_TIMEOUT_MS = 15_000;
+const FAST_LLM_TASKS = new Set<LLMTask>(["clarify", "confirmIntent", "explainFit"]);
 
-function getLlmConfig(): { provider: string; model: string } {
-  const provider = process.env.AI_PROVIDER ?? "anthropic";
-  const defaultModel = provider === "google" ? "gemini-2.5-flash-lite" : "claude-opus-4-8";
-  return { provider, model: process.env.AI_MODEL ?? defaultModel };
+function getDefaultModel(provider: string, task?: LLMTask): string {
+  if (provider === "google") {
+    return task === "parseIntent" ? "gemini-2.5-pro" : "gemini-2.5-flash";
+  }
+  return task === "parseIntent" ? "claude-opus-4-8" : "claude-sonnet-4-5";
+}
+
+function getEnvValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
+
+function getLlmConfig(task?: LLMTask): { provider: string; model: string; task?: LLMTask } {
+  const provider = getEnvValue("AI_PROVIDER") ?? "anthropic";
+  const routedModel =
+    task === "parseIntent"
+      ? getEnvValue("AI_MODEL_INTENT")
+      : task && FAST_LLM_TASKS.has(task)
+        ? getEnvValue("AI_MODEL_FAST")
+        : undefined;
+  return { provider, model: routedModel ?? getEnvValue("AI_MODEL") ?? getDefaultModel(provider, task), task };
 }
 
 /** For startup logs — shows which provider/model the API will use. */
-export function getActiveLlmConfig(): { provider: string; model: string } {
-  return getLlmConfig();
+export function getActiveLlmConfig(options?: CreateLLMClientOptions): { provider: string; model: string; task?: LLMTask } {
+  return getLlmConfig(options?.task);
 }
 
 /** Gemini 2.5+ counts thinking tokens against maxOutputTokens — low caps truncate visible text. */
@@ -252,22 +276,24 @@ async function buildGoogleClient(model: string): Promise<LLMClient> {
   };
 }
 
-let _client: LLMClient | null = null;
-let _init: Promise<LLMClient> | null = null;
-let _clientKey: string | null = null;
+const clientCache = new Map<string, Promise<LLMClient>>();
+const resolvedClientCache = new Map<string, LLMClient>();
 
-export function createLLMClient(): Promise<LLMClient> {
-  const { provider, model } = getLlmConfig();
-  const key = `${provider}:${model}`;
-  if (_client && _clientKey === key) return Promise.resolve(_client);
-  _client = null;
-  _init = null;
-  _clientKey = key;
-  _init = (provider === "google" ? buildGoogleClient(model) : Promise.resolve(buildAnthropicClient(model))).then(
-    (c) => {
-      _client = c;
-      return c;
+export function createLLMClient(options?: CreateLLMClientOptions): Promise<LLMClient> {
+  const { provider, model, task } = getLlmConfig(options?.task);
+  const key = `${provider}:${model}:${task ?? "default"}`;
+  const resolvedClient = resolvedClientCache.get(key);
+  if (resolvedClient) return Promise.resolve(resolvedClient);
+
+  const cachedInit = clientCache.get(key);
+  if (cachedInit) return cachedInit;
+
+  const init = (provider === "google" ? buildGoogleClient(model) : Promise.resolve(buildAnthropicClient(model))).then(
+    (client) => {
+      resolvedClientCache.set(key, client);
+      return client;
     },
   );
-  return _init;
+  clientCache.set(key, init);
+  return init;
 }

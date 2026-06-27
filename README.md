@@ -81,6 +81,22 @@ For mobile: `npm run dev:mobile` starts Expo/Metro on port 8100. Use `npm run de
 
 Phase 0 runs at autonomy levels L1–L2. All agent actions are auditable; human override is always available.
 
+## Voice provider
+
+V's reasoning and V's spoken voice are separate layers. Agent text generation uses `createLLMClient()`;
+speech uses the backend voice provider layer so browser code never calls ElevenLabs or OpenAI directly.
+
+| Capability | Route | Default |
+|------------|-------|---------|
+| V speech output | `POST /v1/voice/speech` | Browser fallback when `VOICE_TTS_PROVIDER=disabled` |
+| Audio transcription | `POST /v1/voice/transcribe` | Disabled until `VOICE_STT_PROVIDER=openai` |
+
+Production TTS is configured with env vars such as `VOICE_TTS_PROVIDER=elevenlabs`,
+`ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID`. Repeated TTS output is cached by provider,
+model, voice, style version, format, and text so common V lines play back consistently.
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for setup and [DEMO_DATA.md](./docs/DEMO_DATA.md) for
+copy/paste API examples.
+
 ## Key principles
 
 - **Intent over forms** — natural language intake first

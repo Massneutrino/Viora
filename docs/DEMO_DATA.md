@@ -7,15 +7,11 @@ Viora ships with a seed script that creates a realistic but minimal demo environ
 ## Setup
 
 ```bash
-# 1. Seed the base fixtures (6 education settings, 6 employers, 15 workers)
+# Seed the base fixtures (6 education settings, 6 employers, 15 workers)
 npm run db:seed
-
-# 2. Create a smoke-test booking and wire up Alex's position
-cd packages/database
-node prisma/smoke-setup.mjs
 ```
 
-After both commands you have a complete booking request (`smoke-br-1`) with workers ranked and ready to receive offers.
+The seed refreshes the canonical demo request (`demo-booking-request`) onto tomorrow's date, recreates its pending Alex offer, and upserts worker pay floors used by the Dynamic Rate sandbox scenario.
 
 ---
 
@@ -72,7 +68,7 @@ useIdentity(): {
 | Organisation | `demo-org` | Greenfield MAT (multi-academy trust, primary) |
 | Site | `demo-site` | Greenfield Primary, 12 School Lane, London |
 | EmployerUser | `demo-employer` | Sarah Johnson, cover manager |
-| BookingRequest | `smoke-br-1` | Supply teacher shift, starts in 48h (re-created by smoke-setup) |
+| BookingRequest | `demo-booking-request` | Seeded Greenfield supply teacher shift, refreshed to tomorrow by `npm run db:seed` |
 
 ---
 
@@ -120,7 +116,72 @@ Each org has its own guardrail policy with role types and budget ceilings tuned 
 
 ## Common Test Flows
 
-All examples use port 6200 and the smoke-test booking (`smoke-br-1`).
+All examples use port 6200 and the seeded booking (`demo-booking-request`).
+
+### Voice provider examples
+
+Local development can leave server-side voice disabled:
+
+```env
+VOICE_TTS_PROVIDER=disabled
+VOICE_STT_PROVIDER=disabled
+```
+
+With those defaults, the site/admin still work because the browser falls back to `speechSynthesis`
+for V's spoken replies and browser `SpeechRecognition` for speech input.
+
+Enable ElevenLabs for V's production TTS:
+
+```env
+VOICE_TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=your_elevenlabs_key
+ELEVENLABS_VOICE_ID=your_v_voice_id
+ELEVENLABS_MODEL_ID=eleven_flash_v2_5
+VOICE_TTS_STYLE_VERSION=v1
+```
+
+Enable OpenAI transcription for server-side STT:
+
+```env
+VOICE_STT_PROVIDER=openai
+OPENAI_API_KEY=your_openai_key
+OPENAI_TRANSCRIBE_MODEL=whisper-1
+```
+
+Generate a V speech sample:
+
+```bash
+curl -s -X POST http://localhost:6200/v1/voice/speech \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Got it. I will look for an eligible cover supervisor for Greenfield tomorrow morning.","purpose":"reply"}' \
+  --output viora-v-sample.mp3
+```
+
+The route writes `voice.speech.generate` audit events. Repeating the same text with the same
+provider/model/voice/style version returns cached audio.
+
+Transcribe a local browser recording or voice note:
+
+```bash
+curl -s -X POST http://localhost:6200/v1/voice/transcribe \
+  -H "Content-Type: audio/webm" \
+  -H "X-Viora-Language: en" \
+  -H "X-Viora-Filename: request.webm" \
+  --data-binary "@request.webm"
+```
+
+Example Viora conversation:
+
+```text
+Employer: Hi V, I need a cover supervisor tomorrow morning in Manchester.
+V: Got it. Which school or organisation should I attach this request to?
+Employer: Greenfield Academy.
+V: Thanks. What time does the shift start and finish?
+Employer: 8:30 to 3:30.
+V: Perfect. I will look for an eligible cover supervisor for Greenfield Academy tomorrow, 8:30 to 3:30, and only surface workers who pass the required checks.
+Employer: Can you send me options?
+V: Yes. I will prepare matched candidates and flag anything that needs human approval before booking.
+```
 
 ### 0. Demo sandbox
 
@@ -130,18 +191,26 @@ The admin console includes a deterministic sandbox for demos and local testing:
 - `GET http://localhost:6200/v1/admin/sandbox/scenarios` lists available scenarios and avatar coverage.
 - `POST http://localhost:6200/v1/admin/sandbox/reset` clears only sandbox-created requests, offers, bookings, shifts, timesheets, invoices, conversations and related audit events. Seeded employers, workers, passports and guardrails are preserved.
 - `POST http://localhost:6200/v1/admin/sandbox/scenarios/single-cover-loop/run` runs the Greenfield request -> offer -> accept -> booking -> shift -> timesheet -> invoice loop.
-- Other scenario IDs: `all-avatars-market-day`, `compliance-block-unlock`, `replacement-recovery`.
+- Other scenario IDs: `all-avatars-market-day`, `compliance-block-unlock`, `replacement-recovery`, `dynamic-rate-clearing`.
 
 Sandbox booking requests are tagged in `BookingRequest.rawIntent` with `[sandbox:<runId>]`, and the run timeline is stored as `AuditEvent` rows with `entityType = SandboxRun`.
 
 ### 1. Rank candidates and broadcast offers
 ```bash
 # Rank eligible workers for the smoke booking
-curl -s -X POST http://localhost:6200/v1/bookings/smoke-br-1/broadcast \
+curl -s -X POST http://localhost:6200/v1/bookings/demo-booking-request/broadcast \
   -H "Content-Type: application/json" \
   -d '{"strategy":"simultaneous_top_n","autonomyLevel":"L2"}'
 ```
 Offers go to Alex and Priya. Tom is blocked; James and Maria are excluded by role type.
+
+### 1a. Dynamic Rate sandbox
+```bash
+curl -s -X POST http://localhost:6200/v1/admin/sandbox/scenarios/dynamic-rate-clearing/run \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+This keeps the main Greenfield flow on Standard Rate, but runs a dedicated L3 Dynamic Rate scenario. It creates a dynamic request with a GBP 145 starting rate and GBP 170 ceiling, clears seeded worker pay floors, writes `NegotiationRecord` rows, and restores Greenfield's L2 guardrail afterwards.
 
 ### 2. Worker swipe deck
 ```bash
@@ -197,7 +266,7 @@ curl -s -X POST http://localhost:6200/v1/admin/compliance/documents/DOC_ID/verif
   -d '{"adminId":"demo-employer"}'
 
 # Re-broadcast — Tom now appears in the eligible pool
-curl -s -X POST http://localhost:6200/v1/bookings/smoke-br-1/broadcast \
+curl -s -X POST http://localhost:6200/v1/bookings/demo-booking-request/broadcast \
   -H "Content-Type: application/json" \
   -d '{"strategy":"simultaneous_top_n","autonomyLevel":"L2"}'
 ```
@@ -251,5 +320,5 @@ Full smoke test: `npm run test:memory` (from repo root, API on :6200).
 |---|---|
 | Autonomy level | L2 (auto-broadcast, no human approval required) |
 | Budget ceiling | £200/day |
-| Approved role types | supply_teacher, cover_supervisor, teaching_assistant |
+| Approved role types | supply_teacher, cover_supervisor, teaching_assistant, learning_support_assistant, invigilator |
 | Max commute | not set |

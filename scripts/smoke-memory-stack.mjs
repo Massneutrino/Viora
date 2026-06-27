@@ -23,6 +23,7 @@ function loadDotEnv() {
 loadDotEnv();
 
 const API_URL = process.env.API_URL ?? "http://localhost:6200";
+const USE_HTTP = process.env.MEMORY_TEST_USE_HTTP === "1";
 const ORG_ID = process.env.MEMORY_TEST_ORG_ID ?? "demo-org";
 const WORKER_ID = process.env.MEMORY_TEST_WORKER_ID ?? "demo-worker";
 const INELIGIBLE_WORKER_ID = process.env.MEMORY_TEST_INELIGIBLE_WORKER_ID ?? "demo-worker-5";
@@ -32,6 +33,7 @@ const runId = `smoke_${Date.now()}`;
 
 const { PrismaClient } = await import("@prisma/client");
 const prisma = new PrismaClient();
+let app = null;
 
 function log(message) {
   console.log(`✓ ${message}`);
@@ -48,6 +50,27 @@ function assert(condition, message) {
 async function request(path, options = {}) {
   const headers = { ...(options.headers ?? {}) };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (app) {
+    const res = await app.inject({
+      method: options.method ?? "GET",
+      url: path,
+      payload: options.body,
+      headers,
+    });
+    const text = res.body;
+    let body = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { raw: text };
+      }
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw new Error(`${options.method ?? "GET"} ${path} failed (${res.statusCode}): ${text}`);
+    }
+    return body;
+  }
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
@@ -68,6 +91,12 @@ async function request(path, options = {}) {
 }
 
 async function waitForApi() {
+  if (!USE_HTTP) {
+    const { buildServer } = await import("../apps/api/src/index.ts");
+    app = await buildServer();
+    await app.ready();
+    return;
+  }
   for (let i = 0; i < 20; i++) {
     try {
       await request("/health/ready");
@@ -102,7 +131,7 @@ async function deleteMemory(path) {
 
 try {
   await waitForApi();
-  log(`API ready at ${API_URL}`);
+  log(app ? "API ready in-process" : `API ready at ${API_URL}`);
 
   const orgMemory = await createMemory(`/v1/organisations/${ORG_ID}/memory`, {
     kind: "preference",
@@ -312,7 +341,7 @@ try {
       fromType: "organisation",
       fromId: ORG_ID,
       toType: "role",
-      toId: "ks2_supply_teacher",
+      toId: `ks2_supply_teacher_${runId}`,
       kind: "pattern",
       label: "Synthetic edge linked to a memory entry for deletion cleanup.",
       weight: 0.2,
@@ -345,5 +374,6 @@ try {
 
   console.log("\nViora Memory smoke test passed.");
 } finally {
+  if (app) await app.close();
   await prisma.$disconnect();
 }

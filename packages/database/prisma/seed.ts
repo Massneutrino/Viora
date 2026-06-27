@@ -96,6 +96,115 @@ async function upsertWorker(seed: WorkerSeed): Promise<Worker> {
   return worker;
 }
 
+async function upsertWorkerPayFloor(workerId: string, payFloor: number, approvedRoleTypes: string[]) {
+  await prisma.guardrailPolicy.upsert({
+    where: { workerId },
+    update: {
+      payFloor,
+      maxCommuteMinutes: null,
+      approvedRoleTypes,
+    },
+    create: {
+      workerId,
+      autonomyLevel: AutonomyLevel.L2,
+      payFloor,
+      approvedRoleTypes,
+      workerWhitelist: [],
+      workerBlocklist: [],
+      escalationContacts: [],
+    },
+  });
+}
+
+async function refreshCanonicalDemoRequest(input: {
+  organisationId: string;
+  siteId: string;
+  workerId: string;
+  startAt: Date;
+  endAt: Date;
+  offerExpiresAt: Date;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const requestId = "demo-booking-request";
+    const bookings = await tx.booking.findMany({
+      where: { bookingRequestId: requestId },
+      select: {
+        id: true,
+        shift: { select: { id: true } },
+      },
+    });
+    const bookingIds = bookings.map((booking) => booking.id);
+    const shiftIds = bookings.flatMap((booking) => (booking.shift ? [booking.shift.id] : []));
+    const conversations = await tx.conversation.findMany({
+      where: { bookingRequestId: requestId },
+      select: { id: true },
+    });
+    const conversationIds = conversations.map((conversation) => conversation.id);
+
+    if (shiftIds.length > 0) await tx.feedback.deleteMany({ where: { shiftId: { in: shiftIds } } });
+    if (bookingIds.length > 0) await tx.timesheet.deleteMany({ where: { bookingId: { in: bookingIds } } });
+    if (bookingIds.length > 0) await tx.shift.deleteMany({ where: { bookingId: { in: bookingIds } } });
+    if (bookingIds.length > 0) await tx.booking.deleteMany({ where: { id: { in: bookingIds } } });
+    await tx.offer.deleteMany({ where: { bookingRequestId: requestId } });
+    await tx.match.deleteMany({ where: { bookingRequestId: requestId } });
+    if (conversationIds.length > 0) {
+      await tx.conversationMessage.deleteMany({ where: { conversationId: { in: conversationIds } } });
+      await tx.conversation.deleteMany({ where: { id: { in: conversationIds } } });
+    }
+
+    const demoRequest = await tx.bookingRequest.upsert({
+      where: { id: requestId },
+      update: {
+        organisationId: input.organisationId,
+        siteId: input.siteId,
+        status: "broadcasting",
+        roleType: "supply_teacher",
+        startAt: input.startAt,
+        endAt: input.endAt,
+        rateMode: "standard",
+        payRate: 150,
+        maxPayRate: 170,
+        requirements: {},
+        rawIntent: "KS2 cover, Year 5, tomorrow 8:15-3:30, up to GBP 170/day",
+        channel: "web",
+        fillProbability: null,
+        broadcastStrategy: "simultaneous_top_n",
+      },
+      create: {
+        id: requestId,
+        organisationId: input.organisationId,
+        siteId: input.siteId,
+        status: "broadcasting",
+        roleType: "supply_teacher",
+        startAt: input.startAt,
+        endAt: input.endAt,
+        rateMode: "standard",
+        payRate: 150,
+        maxPayRate: 170,
+        requirements: {},
+        rawIntent: "KS2 cover, Year 5, tomorrow 8:15-3:30, up to GBP 170/day",
+        channel: "web",
+        broadcastStrategy: "simultaneous_top_n",
+      },
+    });
+
+    await tx.offer.create({
+      data: {
+        id: "demo-offer",
+        bookingRequestId: demoRequest.id,
+        workerId: input.workerId,
+        status: "pending",
+        payRate: 150,
+        fitExplanation:
+          "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so V can confirm this instantly.",
+        expiresAt: input.offerExpiresAt,
+      },
+    });
+
+    return demoRequest;
+  });
+}
+
 type OrgSeed = {
   id: string;
   name: string;
@@ -676,6 +785,14 @@ async function main() {
   });
 
   // ── Demo offer for the worker swipe deck ─────────────────────────────────
+  // Worker pay floors support the dedicated Dynamic Rate sandbox scenario.
+  await Promise.all([
+    upsertWorkerPayFloor(alex.id, 150, alex.roleTypes),
+    upsertWorkerPayFloor(priya.id, 155, priya.roleTypes),
+    upsertWorkerPayFloor(sophie.id, 165, sophie.roleTypes),
+    upsertWorkerPayFloor(daniel.id, 145, daniel.roleTypes),
+  ]);
+
   const shiftStart = new Date();
   shiftStart.setDate(shiftStart.getDate() + 1);
   shiftStart.setHours(8, 15, 0, 0);
@@ -713,6 +830,15 @@ async function main() {
         "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so V can confirm this instantly.",
       expiresAt: offerExpiry,
     },
+  });
+
+  await refreshCanonicalDemoRequest({
+    organisationId: matOrg.id,
+    siteId: primarySite.id,
+    workerId: alex.id,
+    startAt: shiftStart,
+    endAt: shiftEnd,
+    offerExpiresAt: offerExpiry,
   });
 
   console.log("Seed complete:", {

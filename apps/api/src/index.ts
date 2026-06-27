@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { PHASE_0 } from "@viora/domain";
@@ -32,6 +33,7 @@ import { pilotRoutes } from "./routes/pilot.js";
 import { sandboxRoutes } from "./routes/sandbox.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { whatsappRoutes } from "./routes/whatsapp.js";
+import { voiceRoutes } from "./routes/voice.js";
 
 const port = Number(process.env.API_PORT ?? 6200);
 
@@ -51,7 +53,7 @@ checkEnv();
 const llm = getActiveLlmConfig();
 console.log(`[Viora API] LLM: ${llm.provider} / ${llm.model}`);
 
-async function buildServer() {
+export async function buildServer() {
   const app = Fastify({ logger: true });
 
   await app.register(cors, { origin: true });
@@ -77,6 +79,7 @@ async function buildServer() {
   await app.register(workerRoutes, { prefix: "/v1/workers" });
   await app.register(organisationRoutes, { prefix: "/v1/organisations" });
   await app.register(pilotRoutes, { prefix: "/v1/pilot" });
+  await app.register(voiceRoutes, { prefix: "/v1/voice" });
   await app.register(memoryRoutes, { prefix: "/v1" });
   await app.register(whatsappRoutes, { prefix: "/v1/webhooks" });
   await app.register(adminRoutes, { prefix: "/v1/admin" });
@@ -93,12 +96,16 @@ async function buildServer() {
   return app;
 }
 
-buildServer()
-  .then((app) => app.listen({ port, host: "0.0.0.0" }))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+const isMain = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
+
+if (isMain) {
+  buildServer()
+    .then((app) => app.listen({ port, host: "0.0.0.0" }))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
 
 declare module "fastify" {
   interface FastifyInstance {

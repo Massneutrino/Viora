@@ -6,11 +6,11 @@
 
 See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 
-**Demo/testing support**: Admin includes a deterministic sandbox for replaying the Phase 0 loop with seeded avatars, clean reset, audit timeline and scenario coverage.
+**Demo/testing support**: Admin includes a deterministic sandbox for replaying the Phase 0 loop with seeded avatars, clean reset, audit timeline and scenario coverage. `npm run test:phase0` runs the same API paths in-process as a close-out gate. The canonical Greenfield demo remains Standard Rate and is refreshed by seed data; Dynamic Rate is covered by a dedicated sandbox scenario with temporary L3 guardrails and seeded worker pay floors.
 
-**Pilot acquisition (adjunct, not a core Phase 0 item)**: the public site (`apps/site`) leads with a live V conversation that qualifies organisations vs workers and captures pilot/waitlist leads (`POST /v1/pilot/chat`, consent-gated, audited), with manual forms as fallback.
+**Pilot acquisition (adjunct, not a core Phase 0 item)**: the public site (`apps/site`) leads with a live V conversation that qualifies organisations vs workers and captures pilot/waitlist leads (`POST /v1/pilot/chat`, consent-gated, audited), with manual forms as fallback. V's spoken output is now routed through the backend voice provider layer (`/v1/voice/speech`) so ElevenLabs or OpenAI TTS can be selected server-side without rewriting React surfaces.
 
-**Viora Memory v0/v1 governance**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals with use scopes, source/provenance, review-gated imports, influence audits, deletion controls, and a hard boundary between worker private memory and employer-facing ranking.
+**Viora Memory v0/v1 governance**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, booking outcomes, and feedback signals with use scopes, source/provenance, review-gated imports, influence audits, deletion controls, and a hard boundary between worker private memory and employer-facing ranking. The next memory work is evaluation and signal quality: fixture-based extraction/retrieval/influence tests, memory impact analytics, typed high-impact memory values, and CPD memory taxonomy. See [`VIORA_MEMORY_DEEP_DIVE.md`](./VIORA_MEMORY_DEEP_DIVE.md).
 
 **Exit criteria** (from `PHASE_0_SUCCESS_METRICS`):
 - ≥ 70% of bookings initiated conversationally
@@ -36,10 +36,10 @@ Replace manual compliance queue with API integrations: DBS online, Right to Work
 Dynamic Rate is the Phase 1 rate mode alongside Standard Rate. Standard Rate broadcasts one fixed `payRate`; Dynamic Rate lets the Market Agent clear an offer rate between the employer's starting rate/ceiling and the worker's pay floor. Employer and worker guardrails approve or escalate automatically, and every cleared rate is recorded for audit and explanation.
 
 **Memory Controls**
-Employer and worker screens show "what V remembers" with view, edit, delete, source, scope, sensitivity, connector eligibility, and private controls. Important inferred or imported memories are confirmed before V relies on them operationally. Live third-party memory connectors can start here, but must sit behind the Phase 0 review-gated import/export foundation.
+Employer and worker screens show "what V remembers" with view, edit, delete, source, scope, sensitivity, connector eligibility, and private controls. Important inferred or imported memories are confirmed before V relies on them operationally. Phase 1 adds "why V used this memory" context for offers, booking confirmations, shortlists and briefings. Live third-party memory connectors can start here, but must sit behind the Phase 0 review-gated import/export foundation.
 
 **Fit Graph v1**
-Phase 1 starts using confirmed memory signals in intake defaults, pre-shift briefings, offer ranking, and explanations. The goal is fewer repeated employer questions, higher worker offer acceptance, better pre-shift confidence, and improved repeat booking rate.
+Phase 1 starts using confirmed memory signals in intake defaults, pre-shift briefings, offer ranking, and explanations. Fit Graph v1 adds memory evals, influence analytics, typed `MemoryEntry.value` conventions for high-impact operational memories, and CPD/skills memory that can improve recommendations without becoming a hidden exclusion system. The goal is fewer repeated employer questions, higher worker offer acceptance, better pre-shift confidence, and improved repeat booking rate.
 
 **Multi-Sector Expansion**
 Open intake and compliance gates for NHS bank shifts and social care alongside education.
@@ -55,7 +55,7 @@ Employer subscription tier introduced alongside per-booking margin.
 Agency partner API: third-party agencies can plug their worker pools and credential data into the Viora marketplace. Enables cross-network supply.
 
 **Fit Graph**
-Graph-based intelligence layer built from booking history, organisation memory, worker memory, site preferences, worker reliability, role-site match scores, acceptance behaviour, travel patterns, and feedback. Improves ranking accuracy and fill probability estimates over time.
+Graph-based intelligence layer built from booking history, organisation memory, worker memory, site preferences, worker reliability, role-site match scores, acceptance behaviour, travel patterns, CPD signals, briefings and feedback. Phase 2 adds temporal episodes, edge evidence/decay, memory consolidation, reviewed procedural learning, and graph/semantic hybrid retrieval. Improves ranking accuracy and fill probability estimates over time.
 
 **Memory Connectors**
 Bidirectional external memory interoperability belongs in Phase 2 once consent, provenance, deletion propagation, and operational-use review have been proven with the Phase 0/1 connector foundation.

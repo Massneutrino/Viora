@@ -88,7 +88,7 @@ export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent):
       const fallback = offer.fitExplanation ?? "This shift matches your profile and location.";
 
       try {
-        const llm = await createLLMClient();
+        const llm = await createLLMClient({ task: "explainFit" });
         const text = await llm.complete({
           maxTokens: 300,
           system:

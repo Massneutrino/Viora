@@ -36,6 +36,7 @@ export class IntakeHttpError extends Error {
 }
 
 const FALLBACK_MISSING_FIELDS = ["roleType", "siteId", "startAt", "endAt", "payRate"];
+const THANK_YOU_ONLY = /^(thank\s*you|thanks|thx|ta|cheers|ok(?:ay)?|great|perfect|brilliant|nice)[.! ]*$/i;
 
 function fallbackIntakeMessage(): string {
   return "I have your request, but I need a few details to make sure it is booked correctly. Please send the role, site, date and time, and pay rate.";
@@ -58,8 +59,88 @@ function fallbackClarificationMessage(missingFields: string[]): string {
 
 function fallbackConfirmationMessage(intent: ParsedBookingIntent): string {
   const site = intent.siteName ?? intent.siteId ?? "the selected site";
-  const pay = intent.payRate === undefined ? "" : ` at GBP ${intent.payRate}/hour`;
-  return `I have captured this as ${intent.roleType} at ${site} from ${intent.startAt.toISOString()} to ${intent.endAt.toISOString()}${pay}. I will keep it ready for confirmation.`;
+  const pay = intent.payRate === undefined ? "" : ` at GBP ${intent.payRate}/day`;
+  return `I have captured this as ${intent.roleType} at ${site} from ${intent.startAt.toISOString()} to ${intent.endAt.toISOString()}${pay}. I will start matching eligible workers now.`;
+}
+
+function extractLatestPayRate(messages: string[]): number | undefined {
+  const joined = messages.join("\n");
+  const matches = [...joined.matchAll(/(?:\u00a3|gbp\s*)\s*(\d+(?:\.\d+)?)/gi)];
+  const latest = matches.at(-1)?.[1];
+  return latest === undefined ? undefined : Number(latest);
+}
+
+function startOfUtcDate(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function nextWeekdayDate(day: number, now: Date): Date {
+  const today = now.getUTCDay();
+  const delta = (day - today + 7) % 7 || 7;
+  return addDays(startOfUtcDate(now), delta);
+}
+
+function relativeTargetDate(text: string, now: Date): Date | null {
+  const lower = text.toLowerCase();
+  if (/\btoday\b/.test(lower)) return startOfUtcDate(now);
+  if (/\b(tomorrow|tmrw|next\s+working\s+day)\b/.test(lower)) return addDays(startOfUtcDate(now), 1);
+
+  const days: Record<string, number> = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+  for (const [name, day] of Object.entries(days)) {
+    if (new RegExp(`\\b${name}\\b`, "i").test(text)) return nextWeekdayDate(day, now);
+  }
+  return null;
+}
+
+function applyDateWithParsedTime(parsed: Date, targetDate: Date): Date {
+  const next = new Date(targetDate);
+  next.setUTCHours(parsed.getUTCHours(), parsed.getUTCMinutes(), parsed.getUTCSeconds(), parsed.getUTCMilliseconds());
+  return next;
+}
+
+function stabiliseParsedIntent(
+  intent: ParsedBookingIntent,
+  messages: string[],
+  now = new Date(),
+): ParsedBookingIntent {
+  let next = { ...intent };
+  const payRate = extractLatestPayRate(messages);
+  if (payRate !== undefined && !Number.isNaN(payRate)) {
+    next = { ...next, payRate };
+  }
+
+  if (next.startAt <= now || next.endAt <= now || next.endAt <= next.startAt) {
+    const text = messages.join("\n");
+    const targetDate = relativeTargetDate(text, now);
+    if (targetDate) {
+      const startAt = applyDateWithParsedTime(next.startAt, targetDate);
+      const parsedDurationMs = Math.max(
+        30 * 60 * 1000,
+        next.endAt.getTime() - next.startAt.getTime(),
+      );
+      next = {
+        ...next,
+        startAt,
+        endAt: new Date(startAt.getTime() + parsedDurationMs),
+      };
+    }
+  }
+
+  return next;
 }
 
 function serializeError(err: unknown): Record<string, unknown> {
@@ -171,10 +252,17 @@ function normalizeMissingFields(
   guardrails: VIntakeContext["guardrails"],
 ): string[] {
   const missing = new Set(intent.missingFields);
+  const now = new Date();
 
   if (!intent.siteId) missing.add("siteId");
   if (intent.payRate === undefined) missing.add("payRate");
   if (intent.rateMode === "dynamic" && intent.maxPayRate === undefined) missing.add("maxPayRate");
+  if (!(intent.startAt instanceof Date) || Number.isNaN(intent.startAt.getTime()) || intent.startAt <= now) {
+    missing.add("startAt");
+  }
+  if (!(intent.endAt instanceof Date) || Number.isNaN(intent.endAt.getTime()) || intent.endAt <= intent.startAt) {
+    missing.add("endAt");
+  }
 
   if (guardrails.approvedRoleTypes.length > 0 && !guardrails.approvedRoleTypes.includes(intent.roleType)) {
     missing.add("roleType");
@@ -228,52 +316,58 @@ export async function processIntakeTurn(
     },
   };
 
-    const guardrailSnapshot = {
-      autonomyLevel: intakeContext.guardrails.autonomyLevel,
-      budgetCeiling: intakeContext.guardrails.budgetCeiling ?? null,
-      payFloor: intakeContext.guardrails.payFloor ?? null,
-      maxCommuteMinutes: intakeContext.guardrails.maxCommuteMinutes ?? null,
-      approvedRoleTypes: intakeContext.guardrails.approvedRoleTypes,
-      escalationContacts: intakeContext.guardrails.escalationContacts,
-    };
-    const sites = await app.db.site.findMany({
-      where: { organisationId: body.organisationId },
-      select: { id: true, name: true },
-    });
-    const organisationMemory = await app.agents.memory.getOrganisationContext(body.organisationId, {
-      purpose: "intake_default",
-      audience: "employer",
-    });
+  const guardrailSnapshot = {
+    autonomyLevel: intakeContext.guardrails.autonomyLevel,
+    budgetCeiling: intakeContext.guardrails.budgetCeiling ?? null,
+    payFloor: intakeContext.guardrails.payFloor ?? null,
+    maxCommuteMinutes: intakeContext.guardrails.maxCommuteMinutes ?? null,
+    approvedRoleTypes: intakeContext.guardrails.approvedRoleTypes,
+    escalationContacts: intakeContext.guardrails.escalationContacts,
+  };
+  const sites = await app.db.site.findMany({
+    where: { organisationId: body.organisationId },
+    select: { id: true, name: true },
+  });
+  const organisationMemory = await app.agents.memory.getOrganisationContext(body.organisationId, {
+    purpose: "intake_default",
+    audience: "employer",
+  });
 
-    let priorIntent: ParsedBookingIntent | null = null;
-    let priorMessages: { role: string; content: string }[] = [];
-    if (body.conversationId) {
-      const existing = await app.db.conversation.findUnique({
-        where: { id: body.conversationId },
-        include: { messages: { orderBy: { createdAt: "asc" } } },
-      });
-      if (!existing || existing.participantId !== body.organisationId) {
-        throw new IntakeHttpError(404, { error: "Conversation not found." });
-      }
-      priorIntent = deserializeIntent(existing.extractedEntities as Record<string, unknown>);
-      priorMessages = existing.messages.map((m) => ({ role: m.role, content: m.content }));
+  let priorIntent: ParsedBookingIntent | null = null;
+  let priorBookingRequestId: string | null = null;
+  let priorMessages: { role: string; content: string }[] = [];
+  if (body.conversationId) {
+    const existing = await app.db.conversation.findUnique({
+      where: { id: body.conversationId },
+      include: { messages: { orderBy: { createdAt: "asc" } } },
+    });
+    if (!existing || existing.participantId !== body.organisationId) {
+      throw new IntakeHttpError(404, { error: "Conversation not found." });
     }
+    priorIntent = deserializeIntent(existing.extractedEntities as Record<string, unknown>);
+    priorBookingRequestId = existing.bookingRequestId;
+    priorMessages = existing.messages.map((m) => ({ role: m.role, content: m.content }));
+  }
 
-    intakeContext.sites = sites;
-    intakeContext.memory = { summary: organisationMemory.summary };
+  intakeContext.sites = sites;
+  intakeContext.memory = { summary: organisationMemory.summary };
 
-    const parsePrompt = buildParsePrompt(body.rawInput, priorIntent, priorMessages);
-    let parsedIntent: ParsedBookingIntent;
-    try {
-      const mergedIntent = mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext));
-      parsedIntent = resolveSiteId(
-        {
-          ...mergedIntent,
-          rateMode: body.rateMode ?? mergedIntent.rateMode ?? "standard",
-        },
-        sites,
-        body.rawInput,
-      );
+  const parsePrompt = buildParsePrompt(body.rawInput, priorIntent, priorMessages);
+  let parsedIntent: ParsedBookingIntent;
+  try {
+    const mergedIntent = mergeIntent(priorIntent, await app.agents.v.parseIntent(parsePrompt, intakeContext));
+    const resolvedIntent = resolveSiteId(
+      {
+        ...mergedIntent,
+        rateMode: body.rateMode ?? mergedIntent.rateMode ?? "standard",
+      },
+      sites,
+      body.rawInput,
+    );
+    parsedIntent = stabiliseParsedIntent(
+      resolvedIntent,
+      [...priorMessages.map((m) => m.content), body.rawInput],
+    );
     } catch (err) {
       const providerError = serializeError(err);
       log.warn({ err }, "V intake parse failed; using degraded fallback");
@@ -418,8 +512,16 @@ export async function processIntakeTurn(
 
     const persistence = await app.db.$transaction(async (tx) => {
       let bookingRequestId: string | undefined;
+      let createdBookingRequest = false;
+      const reusePriorBooking = Boolean(
+        priorBookingRequestId &&
+          !clarificationNeeded &&
+          THANK_YOU_ONLY.test(body.rawInput.trim()),
+      );
 
-      if (!clarificationNeeded && intent.siteId && intent.payRate !== undefined) {
+      if (reusePriorBooking && priorBookingRequestId) {
+        bookingRequestId = priorBookingRequestId;
+      } else if (!clarificationNeeded && intent.siteId && intent.payRate !== undefined) {
         const booking = await tx.bookingRequest.create({
           data: {
             organisationId: body.organisationId,
@@ -434,10 +536,11 @@ export async function processIntakeTurn(
             rawIntent: body.rawInput,
             channel: body.channel,
             status: "pending_confirmation",
-            broadcastStrategy: "sequential",
+            broadcastStrategy: "simultaneous_top_n",
           },
         });
         bookingRequestId = booking.id;
+        createdBookingRequest = true;
       }
 
       const messageRows = [
@@ -541,8 +644,26 @@ export async function processIntakeTurn(
         },
       });
 
-      return { bookingRequestId, conversationId: conversation.id };
+      return { bookingRequestId, conversationId: conversation.id, createdBookingRequest };
     });
+
+    if (!clarificationNeeded && persistence.bookingRequestId && persistence.createdBookingRequest) {
+      const bookingRequest = await app.db.bookingRequest.findUnique({
+        where: { id: persistence.bookingRequestId },
+        include: { organisation: { include: { guardrailPolicy: true } } },
+      });
+
+      if (bookingRequest) {
+        const ranking = await app.agents.market.rankCandidates(bookingRequest.id);
+        if (ranking.success) {
+          await app.agents.market.broadcastOffers(
+            bookingRequest.id,
+            bookingRequest.broadcastStrategy,
+            bookingRequest.organisation.guardrailPolicy?.autonomyLevel ?? "L4",
+          );
+        }
+      }
+    }
 
     await app.agents.memory.recordInfluence({
       purpose: organisationMemory.audit.purpose,

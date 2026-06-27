@@ -696,14 +696,25 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   /** GET /v1/admin/timesheets/pending — unapproved timesheets for the ops console. */
   app.get("/timesheets/pending", async () => {
-    const pending = await app.db.timesheet.findMany({
+    const pendingRows = await app.db.timesheet.findMany({
       where: { approved: false },
       include: {
-        worker: { select: { id: true, firstName: true, lastName: true } },
-        booking: { select: { roleType: true, startAt: true, endAt: true, payRate: true } },
+        booking: {
+          select: {
+            roleType: true,
+            startAt: true,
+            endAt: true,
+            payRate: true,
+            worker: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 50,
+    });
+    const pending = pendingRows.map((timesheet) => {
+      const { worker, ...booking } = timesheet.booking;
+      return { ...timesheet, booking, worker };
     });
     return { pending };
   });
@@ -711,7 +722,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   /** GET /v1/admin/bookings/ops — bookings eligible for cancel / reopen actions. */
   app.get("/bookings/ops", async () => {
     const bookings = await app.db.booking.findMany({
-      where: { status: { in: ["confirmed", "at_risk", "cancelled", "pre_shift_check"] } },
+      where: { status: { in: ["confirmed", "at_risk", "cancelled"] } },
       include: {
         worker: { select: { firstName: true, lastName: true } },
         site: { select: { name: true } },

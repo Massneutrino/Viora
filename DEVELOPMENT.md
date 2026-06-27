@@ -31,6 +31,8 @@ npm install
 npm run dev          # starts dev workspaces via Turbo on pinned ports
 ```
 
+Voice provider note: server-side V voice lives under `POST /v1/voice/speech` and `POST /v1/voice/transcribe`. `createVoiceClient()` in `packages/agents` owns provider switching, TTS caching, ElevenLabs/OpenAI calls, and server-only credentials. Local dev can leave voice providers disabled; the site and admin fall back to browser speech. TTS cache keys include provider, model, voice, style version, format, and text; bump `VOICE_TTS_STYLE_VERSION` whenever V's locked voice style changes so cached audio regenerates.
+
 Local ports are pinned in workspace scripts:
 - API: 6200
 - Public site: 6103
@@ -47,9 +49,9 @@ Local ports are pinned in workspace scripts:
 - Seed demo data: `npm run db:seed`
 - All Prisma scripts require `--env-file ../../.env` (already scripted in `packages/database/package.json`)
 
-**Demo sandbox**: open the admin console at http://localhost:6101 and use **Dev tools -> Demo sandbox** for deterministic end-to-end runs. The API lives under `/v1/admin/sandbox/*`; reset clears only sandbox-tagged data (`[sandbox:<runId>]`) and keeps seeded avatars available.
+**Demo sandbox**: open the admin console at http://localhost:6101 and use **Dev tools -> Demo sandbox** for deterministic end-to-end runs. The API lives under `/v1/admin/sandbox/*`; reset clears only sandbox-tagged data (`[sandbox:<runId>]`) and keeps seeded avatars available. CLI smoke: `npm run test:phase0` runs the real API in-process and verifies all sandbox scenarios, audit timelines, Dynamic Rate guardrail restore, and worker offer DTOs.
 
-**Memory stack**: structured memories live in `MemoryEntry` / `MemoryEdge`. CRUD is under `/v1/{organisations|workers}/:id/memory`; connector foundation endpoints are `GET /v1/{organisations|workers}/:id/memory/connectors`, `POST /v1/{organisations|workers}/:id/memory/import`, and `GET /v1/{organisations|workers}/:id/memory/export`. Every durable memory records use scopes, sensitivity, source/provenance, visibility, status, edit/delete state, and audit trail. Imported connector memory is review-gated (`pending_confirmation`) and never live bidirectional sync in Phase 0. Worker private memory is profile-only unless the worker explicitly promotes it for operational use. Admin pending review is `GET /v1/admin/memory/pending`. In the admin console use **Dev tools -> Memory lab** to seed/edit demo memories and **Memory review** to confirm inferred/imported entries. Smoke test: `npm run test:memory`.
+**Memory stack**: structured memories live in `MemoryEntry` / `MemoryEdge`. CRUD is under `/v1/{organisations|workers}/:id/memory`; connector foundation endpoints are `GET /v1/{organisations|workers}/:id/memory/connectors`, `POST /v1/{organisations|workers}/:id/memory/import`, and `GET /v1/{organisations|workers}/:id/memory/export`. Every durable memory records use scopes, sensitivity, source/provenance, visibility, status, edit/delete state, and audit trail. Imported connector memory is review-gated (`pending_confirmation`) and never live bidirectional sync in Phase 0. Worker private memory is profile-only unless the worker explicitly promotes it for operational use. Admin pending review is `GET /v1/admin/memory/pending`. In the admin console use **Dev tools -> Memory lab** to seed/edit demo memories and **Memory review** to confirm inferred/imported entries. Smoke test: `npm run test:memory` runs in-process by default; set `MEMORY_TEST_USE_HTTP=1` to target a separately running API at `API_URL`. Strategy and gap analysis live in [`docs/VIORA_MEMORY_DEEP_DIVE.md`](./docs/VIORA_MEMORY_DEEP_DIVE.md); planned next work is memory evals, impact analytics, typed high-impact memory values, memory influence UX, and CPD memory taxonomy.
 
 **Public site (`apps/site`, http://localhost:6103)**: voice-first hero — heading + animated typewriter subheading, V as the centerpiece, a **Speak with V** CTA that opens an inline voice conversation (speech-to-text + `speechSynthesis`, with typed fallback). It calls `POST /v1/pilot/chat` (consent-gated, audited lead capture; shares `createPilotLead` with `POST /v1/pilot/leads`). Readiness/intent are decided server-side, not by the LLM; the chat turn may include a `remembered` note (Viora Memory). A quick-form modal and `/register` (Sign-in target) also create pilot leads. Requires the API on :6200. Env: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` (OG metadata).
 
@@ -61,9 +63,21 @@ Local ports are pinned in workspace scripts:
 - `AI_PROVIDER` — `anthropic` (default) or `google`
 - `ANTHROPIC_API_KEY` — required when `AI_PROVIDER=anthropic`
 - `GOOGLE_API_KEY` — required when `AI_PROVIDER=google`
-- `AI_MODEL` — optional; overrides the default model for the selected provider
+- `AI_MODEL` — optional global override; when set, all LLM tasks use this model unless a task-specific override below is set
+- `AI_MODEL_INTENT` — optional smarter model for `parseIntent`; defaults to `gemini-2.5-pro` for Google or the Anthropic Opus default
+- `AI_MODEL_FAST` — optional fast/cheap model for `clarify`, `confirmIntent`, and `explainFit`; defaults to `gemini-2.5-flash` for Google or the Anthropic fast default
 
 > **Always run `npm run dev` from the repo root.** Running `tsx watch src/index.ts` from inside `apps/api` skips the dotenv wrapper and leaves `DATABASE_URL` and the AI key unset. The API will exit immediately with a clear error if any required var is missing.
+
+Current voice output: the public site and admin console call `/v1/voice/speech` first. Browser `speechSynthesis` remains a fallback only when server TTS is disabled or unavailable.
+
+Voice env:
+- `VOICE_TTS_PROVIDER` - `disabled` locally, `elevenlabs` for production V voice, or `openai` if using OpenAI TTS
+- `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` - required when `VOICE_TTS_PROVIDER=elevenlabs`
+- `OPENAI_API_KEY` - required for `VOICE_STT_PROVIDER=openai` and for `VOICE_TTS_PROVIDER=openai`
+- `VOICE_STT_PROVIDER` - `disabled` locally or `openai` for server-side transcription
+- `VOICE_TTS_STYLE_VERSION` - bump this when changing V's locked voice style so cached audio regenerates
+- `VIORA_VOICE_CACHE_DIR` - optional local/server TTS cache directory; defaults to the OS temp directory
 
 ---
 
@@ -112,10 +126,14 @@ Use `isEligibleForEducationBooking()` from `packages/domain/src/education.ts`. N
 - Use `.complete({ system, prompt })` for text generation
 - Use `.structured<T>({ system, prompt, toolName, toolDescription, schema })` for forced structured output
 - Provider (`AI_PROVIDER`) and model (`AI_MODEL`) come from env — never hardcode a model name or import a provider SDK in agent files
+- For task-specific routing, pass `createLLMClient({ task: "parseIntent" })` for intake parsing and the matching fast-task names for `clarify`, `confirmIntent`, and `explainFit`
 - Keep the stub in `stubs.ts` until the real agent is wired end-to-end and manually tested
 
 **Every agent action must be auditable.**
 Write an `AuditEvent` row for every agent decision: `actorType`, `actorId`, `action`, `entityType`, `entityId`, `inputs`, `outputs`, `outcome`. No silent side-effects.
+
+**Memory influence must stay governed.**
+Any feature that uses memory for intake, ranking, briefings, explanations, CPD, or worker/employer recommendations must preserve deterministic compliance gates, worker private-memory boundaries, and `memory.influence` auditability. Do not increase memory weight in ranking or add new operational memory categories without fixtures that cover extraction, retrieval, influence, private-memory leakage, and compliance-boundary cases. Planned command name for that future suite: `npm run test:memory:evals` (not implemented yet).
 
 **Guardrail policies are not optional.**
 Before any agent takes an autonomous action, fetch the `GuardrailPolicy` for the organisation (or worker) and enforce `autonomyLevel`, `budgetCeiling`, `payFloor`, and `approvedRoleTypes`. If the action exceeds the policy, set `requiresHumanApproval: true` and queue it — never proceed silently.
@@ -159,7 +177,15 @@ Manual test steps:
 npm run build        # build all packages and apps
 npm run typecheck    # type-check everything via Turbo
 npm run lint         # lint all workspaces
+npm run test:phase0  # in-process Phase 0 sandbox/API smoke
+npm run test:memory  # in-process Memory governance smoke
+npm run benchmark:intake -- --limit 10
 ```
+
+`benchmark:intake` builds the domain/agents packages, loads `.env`, runs sample UK employer
+messages through `vAgent.parseIntent`, compares the result to gold JSON, and fails when sample
+accuracy is below `PHASE_0_SUCCESS_METRICS.intentCaptureAccuracy` (95%). Use
+`--samples path/to/gold.json` to run a replacement JSON sample set.
 
 Build order is dependency-aware via Turbo: `domain` → `database` → `agents` → apps.
 

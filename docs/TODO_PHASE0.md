@@ -4,15 +4,22 @@ Maps to the 17 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
 
 Legend: ✅ done · 🔜 in progress · 🔲 todo
 
-**Last reviewed:** 2026-06-25
+**Last reviewed:** 2026-06-27
 
 **Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
 
 **Recent fixes (review follow-up):**
+- Phase 0 close-out hardening completed: added `npm run test:phase0` (`scripts/smoke-phase0.mjs`) to run the API in-process and verify health, demo directory, all five sandbox scenarios, Dynamic Rate guardrail restore, worker offer DTOs, negotiations, and audit visibility.
+- Memory smoke is now repeatable without a separately running API: `npm run test:memory` runs the real Fastify app in-process by default; set `MEMORY_TEST_USE_HTTP=1` to target `API_URL`.
+- Intake benchmark hardening: `vAgent.parseIntent()` now deterministically defaults Standard Rate, preserves lightweight requirements keywords, resolves named sites from the provided site list, normalizes Dynamic Rate "up to" ceilings, and applies guardrail-driven missing fields before returning.
+- Close-out verification passed: `npm run typecheck`, `npm run build`, `npm run test:phase0`, `npm run test:memory`, and `npm run benchmark:intake -- --limit 10` (100% sample accuracy on the 10-sample fixture).
+- Server-side V voice provider layer added: `/v1/voice/speech` for cached TTS, `/v1/voice/transcribe` for raw-audio STT, `createVoiceClient()` provider switching, ElevenLabs/OpenAI env config, audit events, and browser fallback in site/admin.
+- Dynamic Rate demo support added as a dedicated sandbox scenario (`dynamic-rate-clearing`) with seeded worker pay floors and guardrail restore; Standard Rate remains the default Greenfield demo path.
+- Seed refreshes the canonical `demo-booking-request` onto a future date, recreates the pending seeded offer, and upserts Dynamic Rate worker pay floors so demo data does not go stale.
 - Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection (employer web toggle — `apps/web/src/app/page.tsx`), Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation (mobile + worker-web), and admin ops **Dynamic Rate** panel (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`). Phase 0 remains Standard Rate by default.
 - Public site hero UX — tap the V orb to start voice conversation (no separate nav CTA); education wedge moved to eyebrow pill; audience cards stack vertically on narrow viewports (`apps/site/src/app/{page,v-conversation,globals.css}`).
 - Brand lockups — `PixelSphere` `staticMark` for header sizes + unified flat-V `icon.svg` favicons across site/web/worker-web/admin (`packages/ui`, `DEVELOPMENT.md` Frontend section).
-- Demo sandbox in admin console - deterministic scenarios for single-loop booking, all-avatar market day, compliance unlock and replacement recovery; API endpoints live under `/v1/admin/sandbox/*` and sandbox data is tagged with `[sandbox:<runId>]`
+- Demo sandbox in admin console - deterministic scenarios for single-loop booking, all-avatar market day, compliance unlock, replacement recovery and Dynamic Rate clearing; API endpoints live under `/v1/admin/sandbox/*` and sandbox data is tagged with `[sandbox:<runId>]`
 - Mobile swipe deck calls accept/decline API — `apps/mobile/app/index.tsx`
 - Worker web preview for browser testing — `apps/worker-web` at http://localhost:6102 (same API flow as mobile; `demo-worker`)
 - Offer decline verifies `offer.workerId` — `apps/api/src/routes/workers.ts`
@@ -39,7 +46,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ⚠️ **Scope flag:** this is a pilot-acquisition surface, outside the 17 `PHASE_0_MUST_HAVE` items — additive, not a core Phase 0 deliverable.
 
 **Voice-first site + waitlist→approval + Viora Memory (this iteration):**
-- Site hero is now **voice-first**: heading + animated typewriter subheading (cycling real asks), V orb as the centerpiece and **tap-to-talk trigger** (speech-to-text in, `speechSynthesis` out, with "Type instead" fallback and typed-mode when `SpeechRecognition` is unavailable). `apps/site/src/app/{page,v-conversation}.tsx`.
+- Site hero is now **voice-first**: heading + animated typewriter subheading (cycling real asks), V orb as the centerpiece and **tap-to-talk trigger**. Speech input still uses browser `SpeechRecognition` by default; V speech output now calls `/v1/voice/speech` and falls back to `speechSynthesis` when server TTS is disabled/unavailable. `apps/site/src/app/{page,v-conversation,voice-audio}.tsx`.
 - **Quick-form modal** (org/worker toggle) replaces the full-screen dual forms — `apps/site/src/app/quick-form.tsx`; opened from a quiet link / the conversation / the degraded path.
 - **Registration → waitlist**: `apps/site/src/app/register/page.tsx` (Sign-in target) posts to `/v1/pilot/leads`.
 - **Ops-dash approval mints accounts**: `POST /v1/admin/pilot/leads/:id/approve` (`apps/api/src/routes/admin.ts`) upserts the real `Organisation` (+Site+GuardrailPolicy+EmployerUser) or `Worker` (+Passport+GuardrailPolicy) with deterministic ids (idempotent), flips `PilotLead.status` to `approved`, writes an `AuditEvent`, and returns a `?orgId=`/`?workerId=` access link into the employer/worker app. Approve UI lives in the admin Pilot leads tab (`apps/admin/src/app/{sections,pilot-approve}.tsx`). Interim access until real auth lands.
@@ -49,6 +56,14 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - **Admin Memory lab + review**: Dev tools → Memory lab (create/edit/forget for demo orgs/workers); Memory review queue for `pending_confirmation` entries — `apps/admin/src/app/{memory-lab,memory-review}.tsx`.
 - **Smoke test**: `npm run test:memory` (`scripts/smoke-memory-stack.mjs`).
 - Env: API builds access links from `WEB_URL` / `WORKER_WEB_URL` (default localhost 6100/6102).
+
+**Post-MVP Memory Intelligence (Phase 0-1 enablement):**
+- 🔲 Memory eval fixtures — add extraction, retrieval, influence, private-memory leakage, stale-memory and compliance-boundary cases; planned command name `npm run test:memory:evals` once implemented.
+- 🔲 Memory impact analytics — report whether memory reduces clarification turns, improves offer acceptance, improves repeat booking / briefing usefulness, and identify noisy or unused memory kinds from `memory.influence` + booking/offer outcomes.
+- 🔲 Typed memory value conventions — standardize `MemoryEntry.value` shapes for site instructions, worker availability, commute preference, pay expectation, role confidence, briefing notes, preferred/blocked workers, and CPD/training signals.
+- 🔲 Memory influence UX — show worker/employer-facing "why V used this memory" context in offer explanations, booking confirmations, shortlists and briefings without exposing worker private memory to employers.
+- 🔲 CPD memory taxonomy — define skill interest, confidence gap, completed CPD, required induction, expiring training, employer-requested training and training impact evidence before adding full CPD workflows.
+- 🔲 Episodic / temporal Fit Graph groundwork — design a learning-oriented event projection and temporal/evidence metadata for `MemoryEdge` without reopening Phase 0 MVP scope.
 
 ---
 
@@ -155,12 +170,12 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## AI / LLM (post-MVP)
 
-- 🔲 **Per-task model routing** — today `AI_MODEL` is global in `packages/agents/src/llm.ts`. Route `parseIntent` to a smarter model (e.g. Opus / Gemini Pro) and `clarify` / `confirmIntent` / `explainFit` to a fast/cheap tier (Sonnet / Gemini Flash).
-- 🔲 **Provider eval on real intake samples** — benchmark ambiguous UK employer messages (dates, roles, sites, pay) across providers; target ≥95% intent accuracy (`PHASE_0_SUCCESS_METRICS`).
+- ✅ **Per-task model routing** — `createLLMClient({ task })` now routes `parseIntent` to the smart tier (`AI_MODEL_INTENT`, default Google Pro / Anthropic Opus) and `clarify` / `confirmIntent` / `explainFit` to the fast tier (`AI_MODEL_FAST`, default Google Flash / Anthropic fast default). Plain `AI_MODEL` remains a global backward-compatible override.
+- ✅ **Provider eval on real intake samples** — `npm run benchmark:intake -- --limit 10` builds domain/agents, runs UK employer sample messages through `parseIntent`, compares to gold JSON, and checks the 95% `PHASE_0_SUCCESS_METRICS.intentCaptureAccuracy` target. Use `--samples path/to/gold.json` for larger real-world sets.
 - 🔲 **Optional OpenAI provider** — extend `createLLMClient()` if GPT strict-schema / function-calling is needed.
 - 🔲 **Gemini schema cleanup** — revisit `toGoogleSchema()` / `additionalProperties` stripping once on structured JSON Schema mode; may improve `requirements` extraction.
 
-**Interim (Phase 0):** `AI_PROVIDER=google`, `AI_MODEL=gemini-2.5-flash` while Google credits are available. Revisit when credits run out or intake accuracy slips.
+**Interim (Phase 0):** use `AI_MODEL_INTENT` for accuracy-sensitive intake parsing and `AI_MODEL_FAST` for lower-latency prose tasks; leave `AI_MODEL` unset unless you intentionally want one global model for every LLM call.
 
 ---
 

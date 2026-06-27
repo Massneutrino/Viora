@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "viora-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:web"],
+      "port": 6100
+    },
+    {
+      "name": "viora-worker-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:worker-web"],
+      "port": 6102
+    },
+    {
+      "name": "viora-admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:admin"],
+      "port": 6101
+    },
+    {
+      "name": "viora-site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:site"],
+      "port": 6103
+    },
+    {
+      "name": "viora-site-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@viora/site", "--", "--port", "6113"],
+      "port": 6113
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PixelSphere, PixelRings, type WaveState } from "@viora/ui";
+import { playVSpeech } from "./voice-audio";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
 
@@ -37,16 +38,7 @@ export function VConsole() {
   }, [messages, busy]);
 
   const speak = useCallback((text: string) => {
-    try {
-      const synth = window.speechSynthesis;
-      if (!synth) return;
-      synth.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = "en-GB";
-      synth.speak(utter);
-    } catch {
-      // speech synthesis is best-effort
-    }
+    void playVSpeech(text);
   }, []);
 
   const submit = useCallback(

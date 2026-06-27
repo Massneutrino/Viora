@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { WaveState } from "@viora/ui";
+import { cancelVSpeech, playVSpeech } from "./voice-audio";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
 
@@ -76,7 +77,7 @@ export const VConversation = forwardRef<
   // Detect after mount so SSR and first client render match (avoids hydration mismatch).
   useEffect(() => {
     setSpeechSupported(getSpeechRecognition() !== null);
-    setTtsSupported("speechSynthesis" in window);
+    setTtsSupported("Audio" in window);
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -124,13 +125,9 @@ export const VConversation = forwardRef<
         then?.();
         return;
       }
-      const synth = window.speechSynthesis;
-      synth.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 1.02;
-      utter.onend = () => then?.();
+      cancelVSpeech();
       setWave("speaking");
-      synth.speak(utter);
+      void playVSpeech(text, "reply", then);
     },
     [ttsSupported, setWave],
   );
@@ -222,13 +219,13 @@ export const VConversation = forwardRef<
     setMode("text");
     modeRef.current = "text";
     stopListening();
-    if (ttsSupported) window.speechSynthesis.cancel();
+    if (ttsSupported) cancelVSpeech();
     setTimeout(() => document.getElementById("vc-input")?.focus(), 50);
   }, [stopListening, ttsSupported]);
 
   const endConversation = useCallback(() => {
     stopListening();
-    if (ttsSupported && typeof window !== "undefined") window.speechSynthesis.cancel();
+    if (ttsSupported && typeof window !== "undefined") cancelVSpeech();
     setStarted(false);
     setMessages([{ role: "v", content: GREETING }]);
     setMemories([]);

@@ -60,6 +60,7 @@ type BookingSeed = {
   rawRequest: string;
   payRate: number;
   maxPayRate?: number;
+  rateMode?: Prisma.BookingRequestCreateInput["rateMode"];
   startOffsetHours: number;
   durationHours: number;
   strategy?: Prisma.BookingRequestCreateInput["broadcastStrategy"];
@@ -89,6 +90,12 @@ const SCENARIOS = [
     title: "Replacement Recovery",
     description:
       "A confirmed booking is cancelled and the employer context agent reopens the request for backup workers.",
+  },
+  {
+    id: "dynamic-rate-clearing",
+    title: "Dynamic Rate Clearing",
+    description:
+      "Greenfield posts a dynamic-rate request, Market clears worker floors under the cap, and workers receive rate-specific offers.",
   },
 ] as const;
 
@@ -270,6 +277,49 @@ async function restoreDemoComplianceFixtures(db: PrismaClient) {
   }
 }
 
+async function restoreDemoGuardrailFixtures(db: PrismaClient) {
+  await db.guardrailPolicy.updateMany({
+    where: { organisationId: "demo-org" },
+    data: {
+      autonomyLevel: "L2",
+      budgetCeiling: 200,
+      approvedRoleTypes: ["supply_teacher", "cover_supervisor", "teaching_assistant", "learning_support_assistant", "invigilator"],
+      workerWhitelist: [],
+      workerBlocklist: [],
+      escalationContacts: ["cover@greenfieldmat.org"],
+    },
+  });
+}
+
+async function ensureDynamicRateWorkerFloors(db: PrismaClient) {
+  const floors = [
+    { workerId: "demo-worker", payFloor: 150, approvedRoleTypes: ["supply_teacher"] },
+    { workerId: "demo-worker-2", payFloor: 155, approvedRoleTypes: ["supply_teacher"] },
+    { workerId: "demo-worker-8", payFloor: 165, approvedRoleTypes: ["supply_teacher", "cover_supervisor"] },
+    { workerId: "demo-worker-9", payFloor: 145, approvedRoleTypes: ["supply_teacher"] },
+  ];
+
+  for (const floor of floors) {
+    await db.guardrailPolicy.upsert({
+      where: { workerId: floor.workerId },
+      update: {
+        payFloor: floor.payFloor,
+        maxCommuteMinutes: null,
+        approvedRoleTypes: floor.approvedRoleTypes,
+      },
+      create: {
+        workerId: floor.workerId,
+        autonomyLevel: "L2",
+        payFloor: floor.payFloor,
+        approvedRoleTypes: floor.approvedRoleTypes,
+        workerWhitelist: [],
+        workerBlocklist: [],
+        escalationContacts: [],
+      },
+    });
+  }
+}
+
 async function resetSandboxData(db: PrismaClient) {
   const sandboxRuns = await db.auditEvent.findMany({
     where: { entityType: "SandboxRun" },
@@ -325,6 +375,9 @@ async function resetSandboxData(db: PrismaClient) {
     if (bookingIds.length > 0) await tx.booking.deleteMany({ where: { id: { in: bookingIds } } });
     if (offerIds.length > 0) await tx.offer.deleteMany({ where: { id: { in: offerIds } } });
     if (matchIds.length > 0) await tx.match.deleteMany({ where: { id: { in: matchIds } } });
+    if (bookingRequestIds.length > 0) {
+      await tx.negotiationRecord.deleteMany({ where: { bookingRequestId: { in: bookingRequestIds } } });
+    }
     if (conversationIds.length > 0) {
       await tx.conversationMessage.deleteMany({ where: { conversationId: { in: conversationIds } } });
       await tx.conversation.deleteMany({ where: { id: { in: conversationIds } } });
@@ -346,6 +399,7 @@ async function resetSandboxData(db: PrismaClient) {
   });
 
   await restoreDemoComplianceFixtures(db);
+  await restoreDemoGuardrailFixtures(db);
 
   return {
     bookingRequests: bookingRequestIds.length,
@@ -380,6 +434,7 @@ async function createSandboxRequest(
         roleType: seed.roleType,
         startAt,
         endAt,
+        rateMode: seed.rateMode ?? "standard",
         payRate: seed.payRate,
         maxPayRate: seed.maxPayRate,
         rawIntent: sandboxRawIntent(runId, seed.rawRequest),
@@ -401,7 +456,9 @@ async function createSandboxRequest(
           siteId: site.id,
           startAt: startAt.toISOString(),
           endAt: endAt.toISOString(),
+          rateMode: seed.rateMode ?? "standard",
           payRate: seed.payRate,
+          maxPayRate: seed.maxPayRate ?? null,
           confidence: 1,
         }),
         messages: {
@@ -712,6 +769,52 @@ async function runSingleCoverLoop(db: PrismaClient, app: Parameters<FastifyPlugi
   await approveTimesheetAndInvoice(db, runId, [timesheet.id]);
 }
 
+async function runDynamicRateClearing(db: PrismaClient, app: Parameters<FastifyPluginAsync>[0], runId: string) {
+  await restoreDemoComplianceFixtures(db);
+  await restoreDemoGuardrailFixtures(db);
+  await ensureDynamicRateWorkerFloors(db);
+
+  await db.guardrailPolicy.updateMany({
+    where: { organisationId: "demo-org" },
+    data: { autonomyLevel: "L3" },
+  });
+
+  try {
+    const bookingRequest = await createSandboxRequest(db, runId, "dynamic-rate-clearing", {
+      orgId: "demo-org",
+      roleType: "supply_teacher",
+      rawRequest: "Greenfield needs Year 5 supply cover tomorrow. Start at GBP 145, clear dynamically up to GBP 170.",
+      rateMode: "dynamic",
+      payRate: 145,
+      maxPayRate: 170,
+      startOffsetHours: 28,
+      durationHours: 7,
+    });
+
+    const { offers } = await rankAndBroadcast(db, app, runId, bookingRequest.id);
+    const negotiations = await db.negotiationRecord.findMany({
+      where: { bookingRequestId: bookingRequest.id },
+      orderBy: { workerId: "asc" },
+    });
+
+    await writeSandboxEvent(
+      db,
+      runId,
+      "market",
+      "sandbox.market.dynamic_rate_clear",
+      `Dynamic Rate cleared ${negotiations.length} worker floor(s) under the GBP 170 cap.`,
+      negotiations.length > 0 ? "cleared" : "blocked",
+      {
+        bookingRequestId: bookingRequest.id,
+        offerIds: offers.map((offer) => offer.id),
+        negotiationIds: negotiations.map((negotiation) => negotiation.id),
+      },
+    );
+  } finally {
+    await restoreDemoGuardrailFixtures(db);
+  }
+}
+
 async function runAllAvatarsMarketDay(db: PrismaClient, app: Parameters<FastifyPluginAsync>[0], runId: string) {
   const requests: Array<BookingSeed & { acceptWorkerId: string }> = [
     {
@@ -948,6 +1051,21 @@ function coverageForScenario(scenarioId: ScenarioId, directory: AvatarCoverage[]
 
   if (scenarioId === "all-avatars-market-day") {
     return coverage(commonWorkerCoverage, directory);
+  }
+  if (scenarioId === "dynamic-rate-clearing") {
+    return coverage(
+      {
+        "demo-org": { status: "requested", note: "Greenfield creates the dynamic-rate request." },
+        "demo-worker": { status: "backup", note: "Alex clears at GBP 150." },
+        "demo-worker-2": { status: "backup", note: "Priya clears at GBP 155." },
+        "demo-worker-8": { status: "backup", note: "Sophie clears at GBP 165." },
+        "demo-worker-9": { status: "backup", note: "Daniel clears at GBP 145." },
+        "demo-worker-5": { status: "compliance-blocked", note: "Tom remains blocked by DBS." },
+        "demo-worker-11": { status: "compliance-blocked", note: "Raj remains blocked by right-to-work." },
+        "demo-worker-14": { status: "compliance-blocked", note: "Yuki remains blocked by QTS." },
+      },
+      directory,
+    );
   }
   if (scenarioId === "compliance-block-unlock") {
     return coverage(
@@ -1455,6 +1573,7 @@ export const sandboxRoutes: FastifyPluginAsync = async (app) => {
     if (scenarioId === "all-avatars-market-day") await runAllAvatarsMarketDay(app.db, app, runId);
     if (scenarioId === "compliance-block-unlock") await runComplianceBlockUnlock(app.db, app, runId);
     if (scenarioId === "replacement-recovery") await runReplacementRecovery(app.db, app, runId);
+    if (scenarioId === "dynamic-rate-clearing") await runDynamicRateClearing(app.db, app, runId);
 
     await writeSandboxEvent(
       app.db,
