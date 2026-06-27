@@ -83,6 +83,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return app.agents.ops.getOpsStats();
   });
 
+  app.get("/ops/memory-impact", async () => {
+    return app.agents.ops.getMemoryImpactStats();
+  });
+
   /** POST /v1/admin/ops/ask — data-aware Q&A console for the ops team. */
   app.post("/ops/ask", async (request, reply) => {
     const body = askSchema.parse(request.body);

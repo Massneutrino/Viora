@@ -21,6 +21,7 @@
     "typecheck": "turbo typecheck",
     "benchmark:intake": "npm run build --workspace @viora/domain && npm run build --workspace @viora/agents && node scripts/benchmark-intake.mjs",
     "test:memory": "tsx scripts/smoke-memory-stack.mjs",
+    "test:memory:evals": "npm run build --workspace @viora/agents && tsx scripts/test-memory-evals.mjs",
     "test:phase0": "npm run build --workspace @viora/api && tsx scripts/smoke-phase0.mjs",
     "db:generate": "npm run generate --workspace @viora/database",
     "db:migrate": "npm run migrate --workspace @viora/database",

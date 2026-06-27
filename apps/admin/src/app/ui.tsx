@@ -31,11 +31,102 @@ export interface OpsStats {
   };
 }
 
+export interface MemoryImpactStats {
+  periodDays: {
+    recent: number;
+    baseline: number;
+  };
+  influence: {
+    total7d: number;
+    total30d: number;
+    byPurpose30d: OpsCount[];
+    byAudience30d: OpsCount[];
+    byAction30d: OpsCount[];
+    byOutcome30d: OpsCount[];
+  };
+  intake: {
+    influencedTurns30d: number;
+    clarificationRequired30d: number;
+    pendingConfirmation30d: number;
+    clarificationRate30d: number | null;
+  };
+  ranking: {
+    influencedBookingRequests30d: number;
+    offers30d: number;
+    resolvedOffers30d: number;
+    acceptedOffers30d: number;
+    offerAcceptanceRate30d: number | null;
+    bookingsCreated30d: number;
+  };
+  memoryUsage: {
+    topMemories30d: Array<{
+      id: string;
+      title: string;
+      kind: string;
+      ownerType: string;
+      ownerId: string;
+      count: number;
+    }>;
+    topEdges30d: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      ownerType: string;
+      ownerId: string;
+      count: number;
+    }>;
+    unusedActiveMemories: number;
+    unusedActiveMemoriesByKind: OpsCount[];
+  };
+  privacy: {
+    workerPrivateMemories: number;
+    employerFacingPrivateInfluenceCount30d: number;
+    leakedMemoryIds30d: string[];
+  };
+}
+
 export const EMPTY_STATS: OpsStats = {
   workforce: { totalWorkers: 0, avgReliability: null, docsExpiringSoon: 0, complianceDocs: [] },
   funnel: { bookingRequests: [], bookings: [], offers: [] },
   operations: { shifts: [], auditOutcomes7d: [] },
   financial: { invoices: [], revenue: 0, workerPayTotal: 0, unapprovedTimesheets: 0 },
+};
+
+export const EMPTY_MEMORY_IMPACT: MemoryImpactStats = {
+  periodDays: { recent: 7, baseline: 30 },
+  influence: {
+    total7d: 0,
+    total30d: 0,
+    byPurpose30d: [],
+    byAudience30d: [],
+    byAction30d: [],
+    byOutcome30d: [],
+  },
+  intake: {
+    influencedTurns30d: 0,
+    clarificationRequired30d: 0,
+    pendingConfirmation30d: 0,
+    clarificationRate30d: null,
+  },
+  ranking: {
+    influencedBookingRequests30d: 0,
+    offers30d: 0,
+    resolvedOffers30d: 0,
+    acceptedOffers30d: 0,
+    offerAcceptanceRate30d: null,
+    bookingsCreated30d: 0,
+  },
+  memoryUsage: {
+    topMemories30d: [],
+    topEdges30d: [],
+    unusedActiveMemories: 0,
+    unusedActiveMemoriesByKind: [],
+  },
+  privacy: {
+    workerPrivateMemories: 0,
+    employerFacingPrivateInfluenceCount30d: 0,
+    leakedMemoryIds30d: [],
+  },
 };
 
 export function formatLabel(value: string): string {

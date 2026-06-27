@@ -58,8 +58,8 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - Env: API builds access links from `WEB_URL` / `WORKER_WEB_URL` (default localhost 6100/6102).
 
 **Post-MVP Memory Intelligence (Phase 0-1 enablement):**
-- 🔲 Memory eval fixtures — add extraction, retrieval, influence, private-memory leakage, stale-memory and compliance-boundary cases; planned command name `npm run test:memory:evals` once implemented.
-- 🔲 Memory impact analytics — report whether memory reduces clarification turns, improves offer acceptance, improves repeat booking / briefing usefulness, and identify noisy or unused memory kinds from `memory.influence` + booking/offer outcomes.
+- ✅ Memory eval fixtures — `npm run test:memory:evals` runs deterministic fixture coverage for extraction-spec shape, retrieval, influence auditability, private-memory leakage, stale-memory exclusion and compliance-boundary ranking. Set `MEMORY_EVAL_RUN_LLM=1` to opt into live LLM extraction checks.
+- ✅ Memory impact analytics — `GET /v1/admin/ops/memory-impact` and the admin Overview panel report `memory.influence` volume, intake clarification/confirmation mix, influenced offer acceptance, bookings created, top used memories/edges, unused active memory kinds, and worker-private leakage sentinel counts.
 - 🔲 Typed memory value conventions — standardize `MemoryEntry.value` shapes for site instructions, worker availability, commute preference, pay expectation, role confidence, briefing notes, preferred/blocked workers, and CPD/training signals.
 - 🔲 Memory influence UX — show worker/employer-facing "why V used this memory" context in offer explanations, booking confirmations, shortlists and briefings without exposing worker private memory to employers.
 - 🔲 CPD memory taxonomy — define skill interest, confidence gap, completed CPD, required induction, expiring training, employer-requested training and training impact evidence before adding full CPD workflows.

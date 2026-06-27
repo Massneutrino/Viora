@@ -12,17 +12,20 @@ import { LeadActions } from "./pilot-approve";
 import { TimesheetsQueue, type PendingTimesheet } from "./timesheets-queue";
 import {
   EMPTY_STATS,
+  EMPTY_MEMORY_IMPACT,
   Panel,
   SimpleList,
   StatCard,
   formatLabel,
   formatPct,
+  type MemoryImpactStats,
   type OpsStats,
 } from "./ui";
 
 export type { MemoryReviewItem };
 export type { MemoryLabState };
 export type { UnfilledShift } from "./bookings-ops";
+export type { MemoryImpactStats };
 
 export interface MarketHealth {
   unfilledCount?: number;
@@ -83,6 +86,7 @@ export interface ConsoleData {
   audit: AuditEvent[];
   negotiations: DynamicRateRecord[];
   stats: OpsStats;
+  memoryImpact: MemoryImpactStats;
   memoryLab: MemoryLabState;
   pendingTimesheets: PendingTimesheet[];
   bookingOps: BookingOpsItem[];
@@ -108,6 +112,68 @@ function formatTime(iso: string): string {
 
 function formatGbp(value: number): string {
   return `£${Math.round(value).toLocaleString("en-GB")}`;
+}
+
+function shortId(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+}
+
+function MemoryImpactPanel({ stats }: { stats: MemoryImpactStats }) {
+  const privateBoundaryHits = stats.privacy.employerFacingPrivateInfluenceCount30d;
+  return (
+    <Panel title="Memory impact" description="Influence, outcomes and governance checks">
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
+          <MiniStat label="Influence 7d" value={String(stats.influence.total7d)} tone="accent" />
+          <MiniStat label="Influence 30d" value={String(stats.influence.total30d)} />
+          <MiniStat
+            label="Influenced offer acceptance"
+            value={formatPct(stats.ranking.offerAcceptanceRate30d)}
+            tone="accent"
+          />
+          <MiniStat label="Intake clarification rate" value={formatPct(stats.intake.clarificationRate30d)} />
+          <MiniStat
+            label="Private boundary hits"
+            value={String(privateBoundaryHits)}
+            tone={privateBoundaryHits > 0 ? "warning" : "default"}
+          />
+        </div>
+
+        <div style={gridStyle}>
+          <BreakdownPanel title="Memory influence actions · 30d" counts={stats.influence.byAction30d} />
+          <BreakdownPanel title="Memory influence outcomes · 30d" counts={stats.influence.byOutcome30d} />
+          <BreakdownPanel title="Unused active memory kinds" counts={stats.memoryUsage.unusedActiveMemoriesByKind} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
+          <div>
+            <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem" }}>Top memories</h3>
+            <SimpleList
+              empty="No memory influence yet"
+              items={stats.memoryUsage.topMemories30d.map(
+                (memory) =>
+                  `${memory.count}x · ${memory.title} · ${formatLabel(memory.kind)} · ${shortId(memory.id)}`,
+              )}
+            />
+          </div>
+          <div>
+            <h3 style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem" }}>Top graph edges</h3>
+            <SimpleList
+              empty="No edge influence yet"
+              items={stats.memoryUsage.topEdges30d.map(
+                (edge) => `${edge.count}x · ${edge.label} · ${formatLabel(edge.kind)} · ${shortId(edge.id)}`,
+              )}
+            />
+          </div>
+        </div>
+
+        <p style={{ color: "var(--muted)", fontSize: "0.8125rem" }}>
+          {stats.memoryUsage.unusedActiveMemories} active memories have not appeared in influence audits in the last{" "}
+          {stats.periodDays.baseline} days. Worker private memories: {stats.privacy.workerPrivateMemories}.
+        </p>
+      </div>
+    </Panel>
+  );
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
@@ -186,6 +252,8 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
           <MiniStat label="Offer acceptance" value={formatPct(marketHealth.offerAcceptanceRate)} />
         </div>
       </div>
+
+      <MemoryImpactPanel stats={data.memoryImpact} />
     </div>
   );
 }
@@ -350,4 +418,4 @@ export function SandboxSection({ data }: { data: ConsoleData }) {
   );
 }
 
-export { EMPTY_STATS };
+export { EMPTY_STATS, EMPTY_MEMORY_IMPACT };

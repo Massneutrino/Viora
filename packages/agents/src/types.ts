@@ -198,9 +198,64 @@ export interface OpsStats {
   };
 }
 
+export interface MemoryImpactStats {
+  periodDays: {
+    recent: number;
+    baseline: number;
+  };
+  influence: {
+    total7d: number;
+    total30d: number;
+    byPurpose30d: OpsCount[];
+    byAudience30d: OpsCount[];
+    byAction30d: OpsCount[];
+    byOutcome30d: OpsCount[];
+  };
+  intake: {
+    influencedTurns30d: number;
+    clarificationRequired30d: number;
+    pendingConfirmation30d: number;
+    clarificationRate30d: number | null;
+  };
+  ranking: {
+    influencedBookingRequests30d: number;
+    offers30d: number;
+    resolvedOffers30d: number;
+    acceptedOffers30d: number;
+    offerAcceptanceRate30d: number | null;
+    bookingsCreated30d: number;
+  };
+  memoryUsage: {
+    topMemories30d: Array<{
+      id: string;
+      title: string;
+      kind: string;
+      ownerType: string;
+      ownerId: string;
+      count: number;
+    }>;
+    topEdges30d: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      ownerType: string;
+      ownerId: string;
+      count: number;
+    }>;
+    unusedActiveMemories: number;
+    unusedActiveMemoriesByKind: OpsCount[];
+  };
+  privacy: {
+    workerPrivateMemories: number;
+    employerFacingPrivateInfluenceCount30d: number;
+    leakedMemoryIds30d: string[];
+  };
+}
+
 /** Ops Agent — internal team support. */
 export interface OpsAgent {
   getUnfilledShifts(): Promise<{ bookingRequestId: string; urgency: string }[]>;
   getMarketHealthSummary(): Promise<Record<string, unknown>>;
   getOpsStats(): Promise<OpsStats>;
+  getMemoryImpactStats(): Promise<MemoryImpactStats>;
 }

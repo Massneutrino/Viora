@@ -4,7 +4,9 @@ import { ConsoleShell } from "./console-shell";
 import type { ComplianceQueueItem } from "./compliance-queue";
 import type { PendingTimesheet } from "./timesheets-queue";
 import {
+  EMPTY_MEMORY_IMPACT,
   EMPTY_STATS,
+  type MemoryImpactStats,
   type AuditEvent,
   type DynamicRateRecord,
   type MarketHealth,
@@ -28,7 +30,7 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function AdminConsole() {
-  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryLab, timesheetsData, bookingOpsData] =
+  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, pilotLeadData, auditData, negotiationsData, stats, memoryImpact, memoryLab, timesheetsData, bookingOpsData] =
     await Promise.all([
       getJson<{ unfilled: UnfilledShift[] }>("/v1/admin/ops/unfilled", { unfilled: [] }),
       getJson<MarketHealth>("/v1/admin/ops/market-health", {}),
@@ -39,6 +41,7 @@ export default async function AdminConsole() {
       getJson<{ events: AuditEvent[] }>("/v1/admin/audit", { events: [] }),
       getJson<{ negotiations: DynamicRateRecord[] }>("/v1/admin/negotiations", { negotiations: [] }),
       getJson<OpsStats>("/v1/admin/ops/stats", EMPTY_STATS),
+      getJson<MemoryImpactStats>("/v1/admin/ops/memory-impact", EMPTY_MEMORY_IMPACT),
       getJson<MemoryLabState>("/v1/admin/sandbox/memory-lab/state", {
         organisations: [],
         workers: [],
@@ -64,6 +67,7 @@ export default async function AdminConsole() {
         audit: auditData.events,
         negotiations: negotiationsData.negotiations,
         stats,
+        memoryImpact,
         memoryLab,
         pendingTimesheets: timesheetsData.pending,
         bookingOps: bookingOpsData.bookings,

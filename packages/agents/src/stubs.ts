@@ -119,4 +119,42 @@ export const stubOpsAgent: OpsAgent = {
       financial: { invoices: [], revenue: 0, workerPayTotal: 0, unapprovedTimesheets: 0 },
     };
   },
+  async getMemoryImpactStats() {
+    return {
+      periodDays: { recent: 7, baseline: 30 },
+      influence: {
+        total7d: 0,
+        total30d: 0,
+        byPurpose30d: [],
+        byAudience30d: [],
+        byAction30d: [],
+        byOutcome30d: [],
+      },
+      intake: {
+        influencedTurns30d: 0,
+        clarificationRequired30d: 0,
+        pendingConfirmation30d: 0,
+        clarificationRate30d: null,
+      },
+      ranking: {
+        influencedBookingRequests30d: 0,
+        offers30d: 0,
+        resolvedOffers30d: 0,
+        acceptedOffers30d: 0,
+        offerAcceptanceRate30d: null,
+        bookingsCreated30d: 0,
+      },
+      memoryUsage: {
+        topMemories30d: [],
+        topEdges30d: [],
+        unusedActiveMemories: 0,
+        unusedActiveMemoriesByKind: [],
+      },
+      privacy: {
+        workerPrivateMemories: 0,
+        employerFacingPrivateInfluenceCount30d: 0,
+        leakedMemoryIds30d: [],
+      },
+    };
+  },
 };

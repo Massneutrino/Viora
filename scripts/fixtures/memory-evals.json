@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "extractionCases": [
+    {
+      "name": "employer_site_instruction",
+      "ownerType": "organisation",
+      "subjectType": "site",
+      "event": "For Greenfield Primary, always tell supply teachers to sign in at reception and collect the Year 5 behaviour notes before registration.",
+      "expected": {
+        "candidates": [
+          {
+            "kind": "instruction",
+            "visibility": "operational",
+            "useScopes": ["intake_default", "briefing", "explanation"],
+            "contentIncludes": ["sign in", "behaviour notes"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "worker_private_commute_preference",
+      "ownerType": "worker",
+      "subjectType": "worker",
+      "event": "I prefer not to take shifts over 35 minutes away unless the rate is unusually strong.",
+      "expected": {
+        "candidates": [
+          {
+            "kind": "preference",
+            "visibility": "private",
+            "useScopes": ["profile"],
+            "contentIncludes": ["35 minutes", "rate"]
+          }
+        ]
+      }
+    }
+  ],
+  "retrievalCases": [
+    {
+      "name": "organisation_intake_excludes_expired_and_wrong_scope",
+      "context": "organisation",
+      "purpose": "intake_default",
+      "audience": "employer",
+      "expectedMemoryRefs": ["org_active_instruction"],
+      "excludedMemoryRefs": ["org_expired_instruction", "org_wrong_scope_note"]
+    },
+    {
+      "name": "worker_ranking_excludes_private_and_profile_only_memory",
+      "context": "workerRanking",
+      "purpose": "ranking_signal",
+      "audience": "employer",
+      "expectedMemoryRefs": ["worker_operational_fit"],
+      "excludedMemoryRefs": ["worker_private_preference", "worker_profile_only_preference", "worker_expired_fit"]
+    }
+  ],
+  "influenceCases": [
+    {
+      "name": "ranking_writes_memory_influence_audit",
+      "action": "ranking.complete",
+      "entityType": "BookingRequest",
+      "expectedOutcome": "candidates_ranked",
+      "expectedMemoryRefs": ["worker_operational_fit"],
+      "expectedEdgeRefs": ["eligible_preferred_site_fit", "ineligible_strong_site_fit"]
+    }
+  ],
+  "complianceBoundaryCases": [
+    {
+      "name": "ineligible_worker_excluded_despite_strong_memory",
+      "expectedIncludedWorkerRef": "eligible_preferred",
+      "expectedExcludedWorkerRef": "ineligible_strong_memory"
+    }
+  ],
+  "analyticsCases": [
+    {
+      "name": "memory_impact_reports_influence_and_outcomes",
+      "expectedAction": "ranking.complete",
+      "expectedPurpose": "ranking_signal",
+      "expectedAcceptedOffers": 1,
+      "expectedResolvedOffers": 2,
+      "expectedPrivateBoundaryHits": 0
+    }
+  ]
+}
