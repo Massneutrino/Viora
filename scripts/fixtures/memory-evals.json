@@ -34,6 +34,253 @@
       }
     }
   ],
+  "typedValueCases": [
+    {
+      "name": "site_instruction_value",
+      "kind": "instruction",
+      "valid": true,
+      "value": {
+        "valueType": "site_instruction",
+        "instruction": "Sign in at reception before registration.",
+        "appliesTo": ["supply_teacher"],
+        "priority": "high"
+      }
+    },
+    {
+      "name": "worker_availability_value",
+      "kind": "availability_signal",
+      "valid": true,
+      "value": {
+        "valueType": "worker_availability",
+        "availability": "prefers",
+        "daysOfWeek": ["monday", "wednesday"],
+        "timeWindows": [{ "start": "08:00", "end": "16:00" }]
+      }
+    },
+    {
+      "name": "commute_preference_value",
+      "kind": "preference",
+      "valid": true,
+      "value": {
+        "valueType": "commute_preference",
+        "maxMinutes": 35,
+        "preferredTransport": "public_transport",
+        "exception": "Higher rate or known school"
+      }
+    },
+    {
+      "name": "pay_expectation_value",
+      "kind": "pay_signal",
+      "valid": true,
+      "value": {
+        "valueType": "pay_expectation",
+        "minimumRate": 150,
+        "preferredRate": 175,
+        "currency": "GBP",
+        "rateUnit": "day"
+      }
+    },
+    {
+      "name": "role_confidence_value",
+      "kind": "fit_signal",
+      "valid": true,
+      "value": {
+        "valueType": "role_confidence",
+        "roleType": "primary_supply_teacher",
+        "confidence": 0.86,
+        "evidence": "Accepted and completed three similar shifts"
+      }
+    },
+    {
+      "name": "briefing_note_value",
+      "kind": "briefing_note",
+      "valid": true,
+      "value": {
+        "valueType": "briefing_note",
+        "note": "Year 5 needs the behaviour plan before registration.",
+        "audience": "worker",
+        "priority": "high"
+      }
+    },
+    {
+      "name": "preferred_worker_value",
+      "kind": "preference",
+      "valid": true,
+      "value": {
+        "valueType": "worker_relationship",
+        "workerId": "worker-123",
+        "relationship": "preferred",
+        "reason": "Strong repeat feedback from the school office"
+      }
+    },
+    {
+      "name": "blocked_worker_value",
+      "kind": "risk",
+      "valid": true,
+      "value": {
+        "valueType": "worker_relationship",
+        "workerId": "worker-456",
+        "relationship": "blocked",
+        "reason": "Do not offer at this site without admin review"
+      }
+    },
+    {
+      "name": "cpd_completed_training_signal_value",
+      "kind": "fit_signal",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "completed_cpd",
+        "trainingName": "Safeguarding Level 2",
+        "status": "completed",
+        "roleTypes": ["primary_supply_teacher"],
+        "sector": "education",
+        "provider": "Viora Academy",
+        "completedAt": "2026-06-01T00:00:00.000Z"
+      }
+    },
+    {
+      "name": "cpd_skill_interest_value",
+      "kind": "preference",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "skill_interest",
+        "trainingName": "SEND classroom strategies",
+        "status": "recommended",
+        "roleTypes": ["teaching_assistant"],
+        "sector": "education"
+      }
+    },
+    {
+      "name": "cpd_confidence_gap_value",
+      "kind": "preference",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "confidence_gap",
+        "trainingName": "KS2 behaviour support",
+        "status": "recommended",
+        "roleTypes": ["primary_supply_teacher"],
+        "sector": "education"
+      }
+    },
+    {
+      "name": "cpd_required_induction_value",
+      "kind": "briefing_note",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "required_induction",
+        "trainingName": "Greenfield site induction",
+        "status": "recommended",
+        "requestedByOrganisationId": "org-123"
+      }
+    },
+    {
+      "name": "cpd_expiring_training_value",
+      "kind": "briefing_note",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "expiring_training",
+        "trainingName": "Safeguarding Level 2",
+        "status": "expired",
+        "expiresAt": "2026-07-01T00:00:00.000Z"
+      }
+    },
+    {
+      "name": "cpd_employer_requested_training_value",
+      "kind": "briefing_note",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "employer_requested_training",
+        "trainingName": "Autism support induction",
+        "status": "recommended",
+        "requestedByOrganisationId": "org-456"
+      }
+    },
+    {
+      "name": "cpd_training_impact_evidence_value",
+      "kind": "feedback_summary",
+      "valid": true,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "training_impact_evidence",
+        "trainingName": "SEND classroom strategies",
+        "status": "completed",
+        "completedAt": "2026-05-15T00:00:00.000Z",
+        "impact": "Employer feedback improved after SEND CPD."
+      }
+    },
+    {
+      "name": "invalid_pay_missing_rate_unit",
+      "kind": "pay_signal",
+      "valid": false,
+      "value": {
+        "valueType": "pay_expectation",
+        "minimumRate": 150,
+        "currency": "GBP"
+      }
+    },
+    {
+      "name": "invalid_role_confidence_range",
+      "kind": "fit_signal",
+      "valid": false,
+      "value": {
+        "valueType": "role_confidence",
+        "roleType": "teaching_assistant",
+        "confidence": 1.4
+      }
+    },
+    {
+      "name": "invalid_cpd_unknown_signal_type",
+      "kind": "fit_signal",
+      "valid": false,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "unknown_signal",
+        "trainingName": "Safeguarding Level 2",
+        "status": "completed",
+        "completedAt": "2026-06-01T00:00:00.000Z"
+      }
+    },
+    {
+      "name": "invalid_cpd_completed_missing_completed_at",
+      "kind": "fit_signal",
+      "valid": false,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "completed_cpd",
+        "trainingName": "Safeguarding Level 2",
+        "status": "completed"
+      }
+    },
+    {
+      "name": "invalid_cpd_expiring_missing_expires_at",
+      "kind": "briefing_note",
+      "valid": false,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "expiring_training",
+        "trainingName": "Safeguarding Level 2",
+        "status": "expired"
+      }
+    },
+    {
+      "name": "invalid_cpd_incompatible_kind",
+      "kind": "pay_signal",
+      "valid": false,
+      "value": {
+        "valueType": "cpd_training_signal",
+        "signalType": "completed_cpd",
+        "trainingName": "Safeguarding Level 2",
+        "status": "completed",
+        "completedAt": "2026-06-01T00:00:00.000Z"
+      }
+    }
+  ],
   "retrievalCases": [
     {
       "name": "organisation_intake_excludes_expired_and_wrong_scope",
@@ -60,6 +307,77 @@
       "expectedOutcome": "candidates_ranked",
       "expectedMemoryRefs": ["worker_operational_fit"],
       "expectedEdgeRefs": ["eligible_preferred_site_fit", "ineligible_strong_site_fit"]
+    }
+  ],
+  "temporalScoringCases": [
+    {
+      "name": "temporal_scoring_includes_recent_repeated_evidence",
+      "edges": [
+        {
+          "id": "recent_positive",
+          "weight": 0.8,
+          "confidence": 0.9,
+          "evidenceCount": 4,
+          "lastEvidenceAt": "2026-06-20T12:00:00.000Z",
+          "decayPolicy": "linear_365d"
+        }
+      ],
+      "expectedIncluded": [{ "id": "recent_positive", "minScore": 0.6, "maxScore": 1 }]
+    },
+    {
+      "name": "temporal_scoring_decays_stale_evidence",
+      "edges": [
+        {
+          "id": "stale_positive",
+          "weight": 0.8,
+          "confidence": 0.9,
+          "evidenceCount": 2,
+          "lastEvidenceAt": "2025-06-27T12:00:00.000Z",
+          "decayPolicy": "linear_365d"
+        }
+      ],
+      "expectedIncluded": [{ "id": "stale_positive", "minScore": 0.2, "maxScore": 0.35 }]
+    },
+    {
+      "name": "temporal_scoring_excludes_expired_and_superseded_edges",
+      "edges": [
+        {
+          "id": "expired_edge",
+          "weight": 1,
+          "confidence": 1,
+          "evidenceCount": 5,
+          "validUntil": "2026-06-01T00:00:00.000Z",
+          "lastEvidenceAt": "2026-05-01T00:00:00.000Z",
+          "decayPolicy": "linear_365d"
+        },
+        {
+          "id": "superseded_edge",
+          "weight": 1,
+          "confidence": 1,
+          "evidenceCount": 5,
+          "supersededByEdgeId": "replacement_edge",
+          "lastEvidenceAt": "2026-06-20T12:00:00.000Z",
+          "decayPolicy": "linear_365d"
+        }
+      ],
+      "expectedExcluded": [
+        { "id": "expired_edge", "reason": "expired" },
+        { "id": "superseded_edge", "reason": "superseded" }
+      ]
+    },
+    {
+      "name": "temporal_scoring_bounds_negative_risk_evidence",
+      "edges": [
+        {
+          "id": "negative_risk",
+          "weight": -1,
+          "confidence": 1,
+          "evidenceCount": 20,
+          "lastEvidenceAt": "2026-06-26T12:00:00.000Z",
+          "decayPolicy": "linear_365d"
+        }
+      ],
+      "expectedIncluded": [{ "id": "negative_risk", "minScore": -1, "maxScore": -0.95 }]
     }
   ],
   "complianceBoundaryCases": [

@@ -380,8 +380,37 @@ export interface MemoryEdge {
   sourceRefId?: string | null;
   visibility: MemoryVisibility;
   status: MemoryStatus;
+  validFrom: Date;
+  validUntil?: Date | null;
+  lastEvidenceAt?: Date | null;
+  decayPolicy: string;
+  supersededByEdgeId?: string | null;
+  evidenceRefs?: unknown;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface MemoryEpisode {
+  id: string;
+  ownerType: MemoryOwnerType;
+  ownerId: string;
+  subjectType: MemorySubjectType;
+  subjectId: string;
+  kind: MemoryKind;
+  label: string;
+  sourceType: MemorySourceType;
+  sourceRefType?: string | null;
+  sourceRefId?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  purpose?: MemoryUseScope | null;
+  audience?: MemoryAudience | string | null;
+  outcome: string;
+  occurredAt: Date;
+  affectedMemoryIds: string[];
+  affectedEdgeIds: string[];
+  metadata?: unknown;
+  createdAt: Date;
 }
 
 export interface NegotiationRecord {
@@ -409,3 +438,5 @@ export interface Feedback {
 export * from "./education.js";
 export * from "./phase0.js";
 export * from "./geo.js";
+export * from "./memory-values.js";
+export * from "./memory-scoring.js";

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { Prisma } from "@viora/database";
 import { evaluateGuardrailAction } from "@viora/agents";
 import { queuePendingApproval } from "../approvals.js";
+import { latestInfluenceReasons } from "../memory-explanations.js";
 
 export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", async () => {
@@ -16,7 +17,15 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/:id/matches", async (request) => {
     const { id } = request.params as { id: string };
     const result = await app.agents.market.rankCandidates(id);
-    return result;
+    const memoryReasons = await latestInfluenceReasons({
+      db: app.db,
+      entityType: "BookingRequest",
+      entityId: id,
+      action: "ranking.complete",
+      audience: "employer",
+      limit: 5,
+    });
+    return { ...result, memoryReasons };
   });
 
   app.get("/:id/fill-probability", async (request) => {

@@ -1,4 +1,4 @@
-import { haversineKm } from "@viora/domain";
+import { haversineKm, scoreTemporalMemoryEdges } from "@viora/domain";
 import type { Offer, Prisma, PrismaClient } from "@viora/database";
 import { evaluateGuardrailAction } from "./guardrails.js";
 import type { MarketAgent, MemoryAgent, TrustComplianceAgent } from "./types.js";
@@ -55,6 +55,17 @@ export function createMarketAgent(
         roleType: bookingRequest.roleType,
       });
       const memoryEdges = rankingMemory.edges;
+      const temporalMemory = scoreTemporalMemoryEdges(memoryEdges);
+      const temporalScoresByWorker = new Map<string, (typeof temporalMemory.included)[number][]>();
+      for (const score of temporalMemory.included) {
+        const scores = temporalScoresByWorker.get(score.ownerId) ?? [];
+        scores.push(score);
+        temporalScoresByWorker.set(score.ownerId, scores);
+      }
+      const temporalExclusionsByReason = temporalMemory.excluded.reduce<Record<string, number>>((counts, exclusion) => {
+        counts[exclusion.reason] = (counts[exclusion.reason] ?? 0) + 1;
+        return counts;
+      }, {});
 
       type Candidate = {
         workerId: string;
@@ -90,9 +101,10 @@ export function createMarketAgent(
         const commuteScore = Math.max(0, Math.min(1, 1 - distanceKm / radiusKm));
         const reliabilityScore = worker.passport?.reliabilityScore ?? 0.5;
         const workerMemoryEdges = memoryEdges.filter((edge) => edge.ownerId === worker.id);
+        const workerTemporalScores = temporalScoresByWorker.get(worker.id) ?? [];
         const memoryScore = Math.max(
           -1,
-          Math.min(1, workerMemoryEdges.reduce((sum, edge) => sum + edge.weight * edge.confidence, 0)),
+          Math.min(1, workerTemporalScores.reduce((sum, edge) => sum + edge.score, 0)),
         );
         const normalizedMemoryScore = (memoryScore + 1) / 2;
         const finalScore =
@@ -106,7 +118,14 @@ export function createMarketAgent(
           workerId: worker.id,
           score: finalScore,
           reasoning: `${distanceKm.toFixed(1)} km away, reliability score ${reliabilityScore.toFixed(2)}${memoryReason}`,
-          scores: { commuteKm: distanceKm, commuteScore, reliabilityScore, memoryScore, finalScore },
+          scores: {
+            commuteKm: distanceKm,
+            commuteScore,
+            reliabilityScore,
+            memoryScore,
+            finalScore,
+            memoryTemporalEdges: workerTemporalScores.length,
+          },
         });
       }
 
@@ -156,7 +175,13 @@ export function createMarketAgent(
             memoryEdges: memoryEdges.length,
             memoryIds: rankingMemory.audit.memoryIds,
             edgeIds: rankingMemory.audit.edgeIds,
-          },
+            temporalMemory: {
+              includedEdges: temporalMemory.included.length,
+              excludedEdges: temporalMemory.excluded.length,
+              excludedByReason: temporalExclusionsByReason,
+              scores: temporalMemory.included,
+            },
+          } as unknown as Prisma.InputJsonValue,
           outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
         },
       });
@@ -172,6 +197,14 @@ export function createMarketAgent(
         useScopes: rankingMemory.audit.useScopes,
         outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
         note: "Worker ranking used governed operational/shared memory signals only.",
+        metadata: {
+          temporalMemory: {
+            includedEdges: temporalMemory.included.length,
+            excludedEdges: temporalMemory.excluded.length,
+            excludedByReason: temporalExclusionsByReason,
+            scores: temporalMemory.included,
+          },
+        },
       });
 
       return {

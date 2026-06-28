@@ -32,6 +32,196 @@ const GUARDRAIL_SELECT = {
 } as const;
 
 export const organisationRoutes: FastifyPluginAsync = async (app) => {
+  app.get("/:id/dashboard", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const org = await app.db.organisation.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!org) return reply.code(404).send({ error: "Organisation not found." });
+
+    const [lastBooking, requestCounts, activeBookings, openRequests, invoices] = await Promise.all([
+      app.db.booking.findFirst({
+        where: { organisationId: id },
+        include: {
+          worker: { select: { firstName: true, lastName: true } },
+          site: { select: { name: true, address: true, city: true, postcode: true } },
+        },
+        orderBy: { startAt: "desc" },
+      }),
+      app.db.bookingRequest.groupBy({
+        by: ["status"],
+        where: { organisationId: id },
+        _count: { _all: true },
+      }),
+      app.db.booking.count({ where: { organisationId: id, status: { in: ["confirmed", "in_progress"] } } }),
+      app.db.bookingRequest.count({ where: { organisationId: id, status: { in: ["pending_confirmation", "confirmed", "broadcasting"] } } }),
+      app.db.invoice.findMany({ where: { organisationId: id }, select: { totalAmount: true } }),
+    ]);
+
+    const totalRequests = requestCounts.reduce((sum, row) => sum + row._count._all, 0);
+    const filledRequests = requestCounts
+      .filter((row) => row.status === "filled")
+      .reduce((sum, row) => sum + row._count._all, 0);
+    const termSpend = Number(invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0).toFixed(2));
+
+    return reply.send({
+      organisation: org,
+      summary: {
+        fillRate: totalRequests > 0 ? Number((filledRequests / totalRequests).toFixed(2)) : null,
+        activeBookings,
+        openRequests,
+        termSpend,
+      },
+      lastBooking,
+    });
+  });
+
+  app.get("/:id/bookings", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const org = await app.db.organisation.findUnique({ where: { id }, select: { id: true } });
+    if (!org) return reply.code(404).send({ error: "Organisation not found." });
+
+    const [requests, bookings] = await Promise.all([
+      app.db.bookingRequest.findMany({
+        where: { organisationId: id },
+        include: {
+          site: { select: { name: true, address: true, city: true, postcode: true } },
+          offers: { select: { id: true, status: true } },
+          booking: { select: { id: true, status: true, workerId: true } },
+        },
+        orderBy: { startAt: "desc" },
+        take: 50,
+      }),
+      app.db.booking.findMany({
+        where: { organisationId: id },
+        include: {
+          worker: { select: { firstName: true, lastName: true } },
+          site: { select: { name: true, address: true, city: true, postcode: true } },
+          shift: true,
+          timesheet: true,
+        },
+        orderBy: { startAt: "desc" },
+        take: 50,
+      }),
+    ]);
+
+    return reply.send({ requests, bookings });
+  });
+
+  app.get("/:id/workers", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const org = await app.db.organisation.findUnique({ where: { id }, select: { id: true } });
+    if (!org) return reply.code(404).send({ error: "Organisation not found." });
+
+    const [bookings, offers] = await Promise.all([
+      app.db.booking.findMany({
+        where: { organisationId: id },
+        include: {
+          worker: { include: { passport: true } },
+          site: { select: { name: true } },
+        },
+        orderBy: { startAt: "desc" },
+        take: 100,
+      }),
+      app.db.offer.findMany({
+        where: { bookingRequest: { organisationId: id } },
+        include: {
+          worker: { include: { passport: true } },
+          bookingRequest: { include: { site: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    ]);
+
+    const workers = new Map<string, Record<string, unknown>>();
+    for (const booking of bookings) {
+      const previous = workers.get(booking.workerId);
+      workers.set(booking.workerId, {
+        id: booking.workerId,
+        name: `${booking.worker.firstName} ${booking.worker.lastName}`,
+        roleTypes: booking.worker.roleTypes,
+        reliabilityScore: booking.worker.passport?.reliabilityScore ?? null,
+        compliance: {
+          dbsStatus: booking.worker.passport?.dbsStatus ?? null,
+          rightToWorkStatus: booking.worker.passport?.rightToWorkStatus ?? null,
+          safeguardingStatus: booking.worker.passport?.safeguardingStatus ?? null,
+          qtsStatus: booking.worker.passport?.qtsStatus ?? null,
+        },
+        relationship: booking.status === "confirmed" ? "booked" : "recent",
+        bookingCount: Number(previous?.bookingCount ?? 0) + 1,
+        lastRoleType: booking.roleType,
+        lastSiteName: booking.site.name,
+        lastWorkedAt: booking.startAt,
+      });
+    }
+    for (const offer of offers) {
+      if (workers.has(offer.workerId)) continue;
+      workers.set(offer.workerId, {
+        id: offer.workerId,
+        name: `${offer.worker.firstName} ${offer.worker.lastName}`,
+        roleTypes: offer.worker.roleTypes,
+        reliabilityScore: offer.worker.passport?.reliabilityScore ?? null,
+        compliance: {
+          dbsStatus: offer.worker.passport?.dbsStatus ?? null,
+          rightToWorkStatus: offer.worker.passport?.rightToWorkStatus ?? null,
+          safeguardingStatus: offer.worker.passport?.safeguardingStatus ?? null,
+          qtsStatus: offer.worker.passport?.qtsStatus ?? null,
+        },
+        relationship: offer.status === "pending" ? "pending_offer" : "previous_offer",
+        bookingCount: 0,
+        lastRoleType: offer.bookingRequest.roleType,
+        lastSiteName: offer.bookingRequest.site.name,
+        lastWorkedAt: offer.bookingRequest.startAt,
+      });
+    }
+
+    return reply.send({ workers: [...workers.values()] });
+  });
+
+  app.get("/:id/finance", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const org = await app.db.organisation.findUnique({ where: { id }, select: { id: true } });
+    if (!org) return reply.code(404).send({ error: "Organisation not found." });
+
+    const [invoices, timesheets] = await Promise.all([
+      app.db.invoice.findMany({ where: { organisationId: id }, orderBy: { createdAt: "desc" }, take: 25 }),
+      app.db.timesheet.findMany({
+        where: { organisationId: id },
+        include: {
+          booking: {
+            include: {
+              worker: { select: { firstName: true, lastName: true } },
+              site: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ]);
+
+    return reply.send({
+      summary: {
+        workerPayTotal: Number(invoices.reduce((sum, invoice) => sum + invoice.workerPayTotal, 0).toFixed(2)),
+        vioraFeeTotal: Number(invoices.reduce((sum, invoice) => sum + invoice.vioraFeeTotal, 0).toFixed(2)),
+        totalAmount: Number(invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0).toFixed(2)),
+        unapprovedTimesheets: timesheets.filter((timesheet) => !timesheet.approved).length,
+      },
+      invoices,
+      timesheets: timesheets.map((timesheet) => ({
+        id: timesheet.id,
+        approved: timesheet.approved,
+        approvedAt: timesheet.approvedAt,
+        hoursWorked: timesheet.hoursWorked,
+        workerName: `${timesheet.booking.worker.firstName} ${timesheet.booking.worker.lastName}`,
+        roleType: timesheet.booking.roleType,
+        siteName: timesheet.booking.site.name,
+        payRate: timesheet.booking.payRate,
+        workerTotal: Number((timesheet.booking.payRate * timesheet.hoursWorked).toFixed(2)),
+        vioraFee: Number((timesheet.booking.vioraFee * timesheet.hoursWorked).toFixed(2)),
+        startAt: timesheet.booking.startAt,
+      })),
+    });
+  });
   /** GET /v1/organisations/:id — org profile, sites, team and guardrail policy */
   app.get("/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -45,7 +235,7 @@ export const organisationRoutes: FastifyPluginAsync = async (app) => {
         timezone: true,
         sites: {
           orderBy: { name: "asc" },
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, address: true, city: true, postcode: true },
         },
         users: {
           orderBy: { name: "asc" },

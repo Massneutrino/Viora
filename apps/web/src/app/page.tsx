@@ -18,7 +18,7 @@ function humanize(s: string): string {
 type Message = { role: "employer" | "v"; text: string; ts: string }
 type RateMode = "standard" | "dynamic"
 
-type OrgSite = { id: string; name: string; address: string }
+type OrgSite = { id: string; name: string; address: string; city?: string | null; postcode?: string | null }
 type OrgUser = { id: string; name: string; email: string; role: string }
 type OrgProfile = {
   id: string
@@ -48,7 +48,104 @@ type MemoryEntry = {
   sourceLabel?: string | null
   connectorType?: string | null
   connectorRef?: string | null
+  value?: unknown
+  expiresAt?: string | null
+  updatedAt?: string
   confidence: number
+}
+
+type DashboardData = {
+  summary: { fillRate: number | null; activeBookings: number; openRequests: number; termSpend: number }
+  lastBooking: null | {
+    roleType: string
+    status: string
+    startAt: string
+    endAt: string
+    payRate: number
+    totalCost: number
+    worker: { firstName: string; lastName: string }
+    site: OrgSite
+  }
+}
+
+type BookingData = {
+  requests: Array<{
+    id: string
+    status: string
+    roleType: string
+    startAt: string
+    endAt: string
+    payRate: number
+    site: OrgSite
+    offers: Array<{ id: string; status: string }>
+  }>
+  bookings: Array<{
+    id: string
+    status: string
+    roleType: string
+    startAt: string
+    endAt: string
+    payRate: number
+    totalCost: number
+    worker: { firstName: string; lastName: string }
+    site: OrgSite
+    timesheet?: { approved: boolean; hoursWorked: number } | null
+  }>
+}
+
+type OrgWorker = {
+  id: string
+  name: string
+  roleTypes: string[]
+  reliabilityScore?: number | null
+  relationship: string
+  bookingCount: number
+  lastRoleType: string
+  lastSiteName: string
+  lastWorkedAt: string
+  compliance: Record<string, string | null>
+}
+
+type FinanceData = {
+  summary: { workerPayTotal: number; vioraFeeTotal: number; totalAmount: number; unapprovedTimesheets: number }
+  invoices: Array<{ id: string; status: string; workerPayTotal: number; vioraFeeTotal: number; totalAmount: number; periodStart: string; periodEnd: string }>
+  timesheets: Array<{ id: string; approved: boolean; hoursWorked: number; workerName: string; roleType: string; siteName: string; payRate: number; workerTotal: number; vioraFee: number; startAt: string }>
+}
+
+function formatGbp(value?: number | null): string {
+  return `£${Number(value ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return "Date TBC"
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(value))
+}
+
+function formatTime(value?: string | null): string {
+  if (!value) return ""
+  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+}
+
+function siteLine(site?: OrgSite | null): string {
+  return site ? [site.address, site.city, site.postcode].filter(Boolean).join(", ") : ""
+}
+
+function memoryMeta(memory: MemoryEntry): string {
+  const valueType = memory.value && typeof memory.value === "object" && "valueType" in memory.value
+    ? String((memory.value as { valueType?: unknown }).valueType)
+    : null
+  return [
+    humanize(memory.kind),
+    humanize(memory.visibility),
+    humanize(memory.status),
+    `${Math.round((memory.confidence ?? 0) * 100)}%`,
+    (memory.useScopes ?? []).map(humanize).join(", "),
+    humanize(memory.sensitivity ?? "standard"),
+    memory.sourceLabel,
+    memory.connectorType ? humanize(memory.connectorType) : null,
+    valueType ? humanize(valueType) : null,
+    memory.expiresAt ? `expires ${formatDate(memory.expiresAt)}` : null,
+  ].filter(Boolean).join(" - ")
 }
 
 // ── Icons (thin line, inherit colour via currentColor) ──────────────────────────
@@ -97,6 +194,156 @@ function Bubble({ msg }: { msg: Message }) {
 }
 
 // ── Employer settings ───────────────────────────────────────────────────────────
+
+function HomeTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetch(`${apiUrl}/v1/organisations/${orgId}/dashboard`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => { if (active) setData(json) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [orgId, apiUrl])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading overview...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Overview unavailable.</div>
+
+  const last = data.lastBooking
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 14, padding: "0 20px", maxWidth: 460, width: "100%", margin: "0 auto" }}>
+      {last && (
+        <SectionCard title="Last booking">
+          <SettingRow
+            label={`${humanize(last.roleType)} at ${last.site.name}`}
+            sublabel={`${formatDate(last.startAt)} · ${formatTime(last.startAt)}-${formatTime(last.endAt)} · ${last.worker.firstName} ${last.worker.lastName} · ${siteLine(last.site)}`}
+          >
+            {formatGbp(last.payRate)}/day
+          </SettingRow>
+        </SectionCard>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <StatCard label="Fill rate" value={data.summary.fillRate == null ? "-" : `${Math.round(data.summary.fillRate * 100)}%`} accent />
+        <StatCard label="Active" value={String(data.summary.activeBookings)} />
+        <StatCard label="Open" value={String(data.summary.openRequests)} />
+        <StatCard label="Term spend" value={formatGbp(data.summary.termSpend)} />
+      </div>
+    </div>
+  )
+}
+
+function BookingsTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const [data, setData] = useState<BookingData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetch(`${apiUrl}/v1/organisations/${orgId}/bookings`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => { if (active) setData(json) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [orgId, apiUrl])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading bookings...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Bookings unavailable.</div>
+
+  const open = data.requests.filter(r => ["pending_confirmation", "confirmed", "broadcasting"].includes(r.status))
+  return (
+    <div style={{ padding: "8px 20px 24px", display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 520, margin: "0 auto" }}>
+      <SectionCard title={`Open requests (${open.length})`}>
+        {open.length ? open.map(request => (
+          <SettingRow key={request.id} label={`${humanize(request.roleType)} · ${humanize(request.status)}`} sublabel={`${request.site.name} · ${formatDate(request.startAt)} · ${formatTime(request.startAt)}-${formatTime(request.endAt)} · ${request.offers.length} offer(s)`}>
+            {formatGbp(request.payRate)}
+          </SettingRow>
+        )) : <SettingRow label="No open requests" />}
+      </SectionCard>
+      <SectionCard title={`Bookings (${data.bookings.length})`}>
+        {data.bookings.length ? data.bookings.map(booking => (
+          <SettingRow key={booking.id} label={`${humanize(booking.roleType)} · ${humanize(booking.status)}`} sublabel={`${booking.site.name} · ${booking.worker.firstName} ${booking.worker.lastName} · ${formatDate(booking.startAt)} · ${formatTime(booking.startAt)}-${formatTime(booking.endAt)} · ${booking.timesheet ? `${booking.timesheet.hoursWorked}h ${booking.timesheet.approved ? "approved" : "pending"}` : "timesheet pending"}`}>
+            {formatGbp(booking.payRate)}
+          </SettingRow>
+        )) : <SettingRow label="No bookings yet" />}
+      </SectionCard>
+    </div>
+  )
+}
+
+function WorkersTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const [workers, setWorkers] = useState<OrgWorker[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetch(`${apiUrl}/v1/organisations/${orgId}/workers`)
+      .then(res => res.ok ? res.json() : { workers: [] })
+      .then(json => { if (active) setWorkers(json.workers ?? []) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [orgId, apiUrl])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading workers...</div>
+
+  return (
+    <div style={{ padding: "8px 20px 24px", width: "100%", maxWidth: 520, margin: "0 auto" }}>
+      <SectionCard title={`Workers (${workers.length})`}>
+        {workers.length ? workers.map(worker => (
+          <SettingRow key={worker.id} label={`${worker.name} · ${humanize(worker.relationship)}`} sublabel={`${worker.roleTypes.map(humanize).join(", ")} · ${worker.bookingCount} booking(s) · ${humanize(worker.lastRoleType)} at ${worker.lastSiteName} · DBS ${worker.compliance.dbsStatus ?? "-"} · RTW ${worker.compliance.rightToWorkStatus ?? "-"}`}>
+            {worker.reliabilityScore != null ? worker.reliabilityScore.toFixed(1) : "-"}
+          </SettingRow>
+        )) : <SettingRow label="No workers yet" />}
+      </SectionCard>
+    </div>
+  )
+}
+
+function FinanceTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const [data, setData] = useState<FinanceData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetch(`${apiUrl}/v1/organisations/${orgId}/finance`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => { if (active) setData(json) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [orgId, apiUrl])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading finance...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Finance unavailable.</div>
+
+  return (
+    <div style={{ padding: "8px 20px 24px", display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 520, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <StatCard label="Worker pay" value={formatGbp(data.summary.workerPayTotal)} />
+        <StatCard label="Viora fee" value={formatGbp(data.summary.vioraFeeTotal)} />
+        <StatCard label="Total" value={formatGbp(data.summary.totalAmount)} accent />
+        <StatCard label="Pending sheets" value={String(data.summary.unapprovedTimesheets)} />
+      </div>
+      <SectionCard title={`Invoices (${data.invoices.length})`}>
+        {data.invoices.length ? data.invoices.map(invoice => (
+          <SettingRow key={invoice.id} label={`${humanize(invoice.status)} invoice`} sublabel={`${formatDate(invoice.periodStart)}-${formatDate(invoice.periodEnd)} · worker ${formatGbp(invoice.workerPayTotal)} · fee ${formatGbp(invoice.vioraFeeTotal)}`}>
+            {formatGbp(invoice.totalAmount)}
+          </SettingRow>
+        )) : <SettingRow label="No invoices yet" />}
+      </SectionCard>
+      <SectionCard title={`Timesheets (${data.timesheets.length})`}>
+        {data.timesheets.length ? data.timesheets.map(timesheet => (
+          <SettingRow key={timesheet.id} label={`${timesheet.workerName} · ${humanize(timesheet.roleType)}`} sublabel={`${timesheet.siteName} · ${formatDate(timesheet.startAt)} · ${timesheet.hoursWorked}h · ${timesheet.approved ? "approved" : "pending approval"}`}>
+            {formatGbp(timesheet.workerTotal)}
+          </SettingRow>
+        )) : <SettingRow label="No timesheets yet" />}
+      </SectionCard>
+    </div>
+  )
+}
 
 function SettingsTab({
   orgId, apiUrl, onSwitchAccount, onSignOut,
@@ -225,7 +472,7 @@ function SettingsTab({
 
       <SectionCard title={`Sites (${org.sites.length})`}>
         {org.sites.length
-          ? org.sites.map(s => <SettingRow key={s.id} label={s.name} sublabel={s.address} />)
+          ? org.sites.map(s => <SettingRow key={s.id} label={s.name} sublabel={siteLine(s)} />)
           : <SettingRow label="No sites yet" />}
       </SectionCard>
 
@@ -255,11 +502,14 @@ function SettingsTab({
           <SettingRow
             key={memory.id}
             label={memory.title}
-            sublabel={`${memory.content} · ${humanize(memory.kind)} · ${humanize(memory.visibility)} · ${humanize(memory.status)} · ${(memory.useScopes ?? []).map(humanize).join(", ")} · ${humanize(memory.sensitivity ?? "standard")}${memory.sourceLabel ? ` · ${memory.sourceLabel}` : ""}${memory.connectorType ? ` · ${humanize(memory.connectorType)}` : ""}`}
+            sublabel={`${memory.content} · ${memoryMeta(memory)}`}
           >
             <div style={{ display: "flex", gap: 6 }}>
               {memory.status === "pending_confirmation" && (
                 <button onClick={() => void patchMemory(memory.id, { status: "active" })} style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+              )}
+              {memory.status !== "archived" && memory.status !== "deleted" && (
+                <button onClick={() => void patchMemory(memory.id, { status: "archived" })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Archive</button>
               )}
               <button onClick={() => {
                 const content = window.prompt("Update memory", memory.content)
@@ -459,27 +709,18 @@ function EmployerAppInner() {
       statusSublabel={waveState === "rest" ? "Tap the sphere to speak · or type below" : undefined}
       preview={preview}
       onPreviewChange={setPreview}
-      footer={activeNav === "settings" ? undefined : footer}
+      footer={activeNav === "home" ? footer : undefined}
     >
       {activeNav === "settings" ? (
         <SettingsTab orgId={orgId} apiUrl={API_URL} onSwitchAccount={switchAccount} onSignOut={signOut} />
+      ) : activeNav === "bookings" ? (
+        <BookingsTab orgId={orgId} apiUrl={API_URL} />
+      ) : activeNav === "workers" ? (
+        <WorkersTab orgId={orgId} apiUrl={API_URL} />
+      ) : activeNav === "finance" ? (
+        <FinanceTab orgId={orgId} apiUrl={API_URL} />
       ) : messages.length === 0 ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: "0 20px" }}>
-          <div style={{ background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 14, padding: "14px 16px", width: "100%", maxWidth: 440 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-              <span style={{ color: "var(--muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em" }}>Last booking</span>
-              <span style={{ color: "var(--success)", fontSize: 11 }}>✓ Confirmed 7:53am</span>
-            </div>
-            <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 600, margin: "0 0 2px" }}>KS2 Supply — Year 5</p>
-            <p style={{ color: "var(--muted)", fontSize: 12, margin: 0 }}>Greenfield Primary · 8:15–3:30 · £150/day · Saved £45 vs agency</p>
-          </div>
-          <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 440 }}>
-            <StatCard label="Fill rate" value="94%" accent />
-            <StatCard label="Active" value="3" />
-            <StatCard label="Open" value="1" />
-            <StatCard label="Term spend" value="£12.4k" />
-          </div>
-        </div>
+        <HomeTab orgId={orgId} apiUrl={API_URL} />
       ) : (
         <div style={{ padding: "4px 20px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
           {messages.map((m, i) => <Bubble key={i} msg={m} />)}

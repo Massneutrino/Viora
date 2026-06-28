@@ -4,6 +4,7 @@ import type { Prisma } from "@viora/database";
 import { haversineKm } from "@viora/domain";
 import { queuePendingApproval } from "../approvals.js";
 import { writeAuditEvent } from "../audit.js";
+import { offerMemoryReasons } from "../memory-explanations.js";
 import { makeStorageKey, saveFile, readFile, mimeFromKey } from "../storage.js";
 
 // Phase 0: maximum distance from site before check-in is rejected
@@ -64,6 +65,9 @@ const workerProfileSchema = z
     firstName: z.string().min(1).max(100).optional(),
     lastName: z.string().min(1).max(100).optional(),
     phone: z.string().max(40).nullable().optional(),
+    homeAddress: z.string().max(255).nullable().optional(),
+    homeCity: z.string().max(100).nullable().optional(),
+    homePostcode: z.string().max(20).nullable().optional(),
     homeLatitude: z.number().min(-90).max(90).nullable().optional(),
     homeLongitude: z.number().min(-180).max(180).nullable().optional(),
     workRadiusKm: z.number().min(0).max(500).nullable().optional(),
@@ -86,6 +90,9 @@ const WORKER_PROFILE_SELECT = {
   lastName: true,
   email: true,
   phone: true,
+  homeAddress: true,
+  homeCity: true,
+  homePostcode: true,
   homeLatitude: true,
   homeLongitude: true,
   workRadiusKm: true,
@@ -137,10 +144,31 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       travelMinutes = Math.max(1, Math.round(km / AVG_URBAN_KM_PER_MIN));
     }
 
+    const memoryExplanation = await offerMemoryReasons({
+      db: app.db,
+      memory: app.agents.memory,
+      offerId: offer.id,
+      audience: "worker",
+      limit: 4,
+    });
+    await app.agents.memory.recordInfluence({
+      purpose: memoryExplanation.audit.purpose,
+      audience: "worker",
+      entityType: "Offer",
+      entityId: offer.id,
+      action: "offer.surface",
+      memoryIds: memoryExplanation.audit.memoryIds,
+      edgeIds: memoryExplanation.audit.edgeIds,
+      useScopes: memoryExplanation.audit.useScopes,
+      outcome: "offer_shown",
+      note: "Worker-facing offer can explain use of the worker's own private memory.",
+    }).catch((err) => request.log.warn({ err }, "memory influence audit failed for worker offer"));
+
     const dto = {
       id: offer.id,
       role: br?.roleType ? roleLabel(br.roleType) : "Shift",
       site: site?.name ?? "",
+      siteAddress: site ? [site.address, site.city, site.postcode].filter(Boolean).join(", ") : "",
       payPerDay: offer.payRate,
       rateMode: br?.rateMode ?? "standard",
       rateExplanation: negotiation?.explanation,
@@ -150,6 +178,7 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       shiftStart: br?.startAt ? offerTimeFmt.format(new Date(br.startAt)) : undefined,
       shiftEnd: br?.endAt ? offerTimeFmt.format(new Date(br.endAt)) : undefined,
       hasBriefing: Boolean(site?.siteInstructions),
+      memoryReasons: memoryExplanation.reasons,
       expiresAt: offer.expiresAt,
     };
 
@@ -157,6 +186,122 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** GET /v1/workers/:id — profile + guardrail policy (account hub) */
+  /** GET /v1/workers/:id/shifts - worker-facing shift and offer history */
+  app.get("/:id/shifts", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const worker = await app.db.worker.findUnique({ where: { id }, select: { id: true } });
+    if (!worker) return reply.code(404).send({ error: "Worker not found." });
+
+    const [offers, bookings] = await Promise.all([
+      app.db.offer.findMany({
+        where: { workerId: id },
+        include: {
+          bookingRequest: {
+            include: {
+              site: { select: { name: true, address: true, city: true, postcode: true } },
+              organisation: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+      }),
+      app.db.booking.findMany({
+        where: { workerId: id },
+        include: {
+          organisation: { select: { name: true } },
+          site: { select: { name: true, address: true, city: true, postcode: true } },
+          shift: true,
+          timesheet: true,
+        },
+        orderBy: { startAt: "desc" },
+        take: 25,
+      }),
+    ]);
+
+    const formatSiteAddress = (site?: { address?: string | null; city?: string | null; postcode?: string | null } | null) =>
+      site ? [site.address, site.city, site.postcode].filter(Boolean).join(", ") : "";
+
+    return reply.send({
+      offers: offers.map((offer) => ({
+        id: offer.id,
+        status: offer.status,
+        roleType: offer.bookingRequest.roleType,
+        organisationName: offer.bookingRequest.organisation.name,
+        siteName: offer.bookingRequest.site.name,
+        siteAddress: formatSiteAddress(offer.bookingRequest.site),
+        startAt: offer.bookingRequest.startAt,
+        endAt: offer.bookingRequest.endAt,
+        payRate: offer.payRate,
+        rateMode: offer.bookingRequest.rateMode,
+        fitExplanation: offer.fitExplanation,
+        expiresAt: offer.expiresAt,
+      })),
+      bookings: bookings.map((booking) => ({
+        id: booking.id,
+        status: booking.status,
+        roleType: booking.roleType,
+        organisationName: booking.organisation.name,
+        siteName: booking.site.name,
+        siteAddress: formatSiteAddress(booking.site),
+        startAt: booking.startAt,
+        endAt: booking.endAt,
+        payRate: booking.payRate,
+        shift: booking.shift,
+        timesheet: booking.timesheet,
+      })),
+    });
+  });
+
+  /** GET /v1/workers/:id/earnings - approved and pending worker pay */
+  app.get("/:id/earnings", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const worker = await app.db.worker.findUnique({ where: { id }, select: { id: true } });
+    if (!worker) return reply.code(404).send({ error: "Worker not found." });
+
+    const timesheets = await app.db.timesheet.findMany({
+      where: { workerId: id },
+      include: {
+        booking: {
+          include: {
+            organisation: { select: { name: true } },
+            site: { select: { name: true, address: true, city: true, postcode: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const rows = timesheets.map((timesheet) => {
+      const workerTotal = Number((timesheet.booking.payRate * timesheet.hoursWorked).toFixed(2));
+      return {
+        id: timesheet.id,
+        bookingId: timesheet.bookingId,
+        approved: timesheet.approved,
+        approvedAt: timesheet.approvedAt,
+        hoursWorked: timesheet.hoursWorked,
+        payRate: timesheet.booking.payRate,
+        workerTotal,
+        roleType: timesheet.booking.roleType,
+        organisationName: timesheet.booking.organisation.name,
+        siteName: timesheet.booking.site.name,
+        startAt: timesheet.booking.startAt,
+        endAt: timesheet.booking.endAt,
+      };
+    });
+
+    return reply.send({
+      summary: {
+        approvedTotal: Number(rows.filter((row) => row.approved).reduce((sum, row) => sum + row.workerTotal, 0).toFixed(2)),
+        pendingTotal: Number(rows.filter((row) => !row.approved).reduce((sum, row) => sum + row.workerTotal, 0).toFixed(2)),
+        approvedCount: rows.filter((row) => row.approved).length,
+        pendingCount: rows.filter((row) => !row.approved).length,
+      },
+      timesheets: rows,
+    });
+  });
+
   app.get("/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
     const worker = await app.db.worker.findUnique({

@@ -262,6 +262,46 @@ try {
   );
   log("connector export verified");
 
+  const consolidationMemoryId = `${runId}_consolidation_stale`;
+  await prisma.memoryEntry.create({
+    data: {
+      id: consolidationMemoryId,
+      ownerType: "organisation",
+      ownerId: ORG_ID,
+      subjectType: "organisation",
+      subjectId: ORG_ID,
+      kind: "briefing_note",
+      key: `memory_smoke_consolidation_${runId}`,
+      title: `Memory smoke consolidation ${runId}`,
+      content: "Old briefing note used to verify admin consolidation review.",
+      sourceType: "user_entered",
+      visibility: "operational",
+      status: "active",
+      useScopes: ["briefing"],
+      sensitivity: "standard",
+      confidence: 0.7,
+      updatedAt: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000),
+    },
+  });
+  const consolidation = await request("/v1/admin/memory/consolidation");
+  const archiveSuggestion = consolidation.suggestions.find(
+    (suggestion) =>
+      suggestion.action === "archive" && suggestion.affectedMemoryIds?.includes(consolidationMemoryId),
+  );
+  assert(archiveSuggestion, "Memory consolidation did not suggest archiving stale active memory.");
+  await request(`/v1/admin/memory/consolidation/${archiveSuggestion.id}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ adminId: "smoke-test" }),
+  });
+  const archivedConsolidationMemory = await prisma.memoryEntry.findUnique({
+    where: { id: consolidationMemoryId },
+  });
+  assert(
+    archivedConsolidationMemory?.status === "archived",
+    "Applying memory consolidation archive suggestion did not archive the memory.",
+  );
+  log("memory consolidation review verified");
+
   const offer = await request(`/v1/workers/${WORKER_ID}/offer`);
   if (offer.offer?.id === OFFER_ID) {
     await request(`/v1/workers/${WORKER_ID}/offers/${OFFER_ID}/decline`, { method: "POST" });
@@ -269,6 +309,15 @@ try {
       where: { sourceRefType: "Offer", sourceRefId: OFFER_ID },
     });
     assert(edgeCount > 0, "Offer decline did not create/update MemoryEdge rows.");
+    const episodeCount = await prisma.memoryEpisode.count({
+      where: { sourceRefType: "Offer", sourceRefId: OFFER_ID },
+    });
+    assert(episodeCount > 0, "Offer decline did not create MemoryEpisode rows.");
+    const temporalEdge = await prisma.memoryEdge.findFirst({
+      where: { sourceRefType: "Offer", sourceRefId: OFFER_ID },
+      orderBy: { updatedAt: "desc" },
+    });
+    assert(temporalEdge?.lastEvidenceAt, "Offer decline did not stamp MemoryEdge.lastEvidenceAt.");
     const audit = await request("/v1/admin/audit");
     assert(
       audit.events.some((event) => event.action === "memory.edge.update" && event.entityId === OFFER_ID),
@@ -363,6 +412,10 @@ try {
     where: { id: inferred.id },
     data: { status: "deleted", content: "[deleted]", deletedAt: new Date() },
   });
+  await prisma.memoryReviewSuggestion.deleteMany({
+    where: { affectedMemoryIds: { has: consolidationMemoryId } },
+  });
+  await prisma.memoryEntry.deleteMany({ where: { id: consolidationMemoryId } });
   log("memory cleanup completed");
 
   const audit = await request("/v1/admin/audit");

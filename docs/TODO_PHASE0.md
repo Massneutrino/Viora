@@ -4,11 +4,12 @@ Maps to the 17 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
 
 Legend: ✅ done · 🔜 in progress · 🔲 todo
 
-**Last reviewed:** 2026-06-27
+**Last reviewed:** 2026-06-28
 
 **Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
 
 **Recent fixes (review follow-up):**
+- MCP architecture decision documented: MCP is not a Phase 0 core architecture dependency; future MCP belongs behind a separate, permissioned edge gateway that delegates to existing API/agent/domain services and preserves audit, guardrail, compliance, and memory privacy boundaries.
 - Phase 0 close-out hardening completed: added `npm run test:phase0` (`scripts/smoke-phase0.mjs`) to run the API in-process and verify health, demo directory, all five sandbox scenarios, Dynamic Rate guardrail restore, worker offer DTOs, negotiations, and audit visibility.
 - Memory smoke is now repeatable without a separately running API: `npm run test:memory` runs the real Fastify app in-process by default; set `MEMORY_TEST_USE_HTTP=1` to target `API_URL`.
 - Intake benchmark hardening: `vAgent.parseIntent()` now deterministically defaults Standard Rate, preserves lightweight requirements keywords, resolves named sites from the provided site list, normalizes Dynamic Rate "up to" ceilings, and applies guardrail-driven missing fields before returning.
@@ -16,6 +17,8 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - Server-side V voice provider layer added: `/v1/voice/speech` for cached TTS, `/v1/voice/transcribe` for raw-audio STT, `createVoiceClient()` provider switching, ElevenLabs/OpenAI env config, audit events, and browser fallback in site/admin.
 - Dynamic Rate demo support added as a dedicated sandbox scenario (`dynamic-rate-clearing`) with seeded worker pay floors and guardrail restore; Standard Rate remains the default Greenfield demo path.
 - Seed refreshes the canonical `demo-booking-request` onto a future date, recreates the pending seeded offer, and upserts Dynamic Rate worker pay floors so demo data does not go stale.
+- Demo operational fixture pack added: `npm run db:seed` now recreates fixed `demo-fixture-*` bookings, offers, shifts, timesheets, invoices and memory so every employer/worker navigation tab has realistic data.
+- Worker and site locations now display as street/city/postcode in the apps while retaining latitude/longitude internally for matching, commute estimates and check-in validation.
 - Dynamic Rate foundation added as a Phase 1/L3 rate mode, not a Phase 0 must-have: `BookingRequest.rateMode`, Standard vs Dynamic intake selection (employer web toggle — `apps/web/src/app/page.tsx`), Dynamic Rate clearing guardrails, `NegotiationRecord` audit trail, worker offer explanation (mobile + worker-web), and admin ops **Dynamic Rate** panel (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`). Phase 0 remains Standard Rate by default.
 - Public site hero UX — tap the V orb to start voice conversation (no separate nav CTA); education wedge moved to eyebrow pill; audience cards stack vertically on narrow viewports (`apps/site/src/app/{page,v-conversation,globals.css}`).
 - Brand lockups — `PixelSphere` `staticMark` for header sizes + unified flat-V `icon.svg` favicons across site/web/worker-web/admin (`packages/ui`, `DEVELOPMENT.md` Frontend section).
@@ -60,10 +63,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 **Post-MVP Memory Intelligence (Phase 0-1 enablement):**
 - ✅ Memory eval fixtures — `npm run test:memory:evals` runs deterministic fixture coverage for extraction-spec shape, retrieval, influence auditability, private-memory leakage, stale-memory exclusion and compliance-boundary ranking. Set `MEMORY_EVAL_RUN_LLM=1` to opt into live LLM extraction checks.
 - ✅ Memory impact analytics — `GET /v1/admin/ops/memory-impact` and the admin Overview panel report `memory.influence` volume, intake clarification/confirmation mix, influenced offer acceptance, bookings created, top used memories/edges, unused active memory kinds, and worker-private leakage sentinel counts.
-- 🔲 Typed memory value conventions — standardize `MemoryEntry.value` shapes for site instructions, worker availability, commute preference, pay expectation, role confidence, briefing notes, preferred/blocked workers, and CPD/training signals.
-- 🔲 Memory influence UX — show worker/employer-facing "why V used this memory" context in offer explanations, booking confirmations, shortlists and briefings without exposing worker private memory to employers.
-- 🔲 CPD memory taxonomy — define skill interest, confidence gap, completed CPD, required induction, expiring training, employer-requested training and training impact evidence before adding full CPD workflows.
-- 🔲 Episodic / temporal Fit Graph groundwork — design a learning-oriented event projection and temporal/evidence metadata for `MemoryEdge` without reopening Phase 0 MVP scope.
+- ✅ Typed memory value conventions — `packages/domain/src/memory-values.ts` defines and validates `MemoryEntry.value.valueType` shapes for site instructions, worker availability, commute preference, pay expectation, role confidence, briefing notes, preferred/blocked workers, and CPD/training signals. CRUD/import rejects malformed declared typed values; inference skips invalid typed candidates; `npm run test:memory:evals` covers valid/invalid fixtures and API validation.
+- ✅ Memory influence UX — worker offer DTOs now include audience-safe `memoryReasons` rendered in worker web/mobile under "Why V chose this"; employer-facing `/v1/bookings/:id/matches` includes filtered `memoryReasons` from the latest `memory.influence` audit. Private worker memory is re-fetched and filtered before employer DTOs; `npm run test:memory:evals` covers employer no-leak and worker-own-private explanation cases.
+- ✅ CPD memory taxonomy — `cpd_training_signal` now has typed signal categories for skill interest, confidence gap, completed CPD, required induction, expiring training, employer-requested training and training impact evidence. Domain validation enforces required taxonomy fields; evals cover valid/invalid CPD values, ranking-eligible positive CPD evidence, worker-private CPD gap boundaries, and compliance override protection.
+- ✅ Episodic / temporal Fit Graph groundwork — added `MemoryEpisode` as a learning projection and temporal/evidence metadata on `MemoryEdge` (`validFrom`, `validUntil`, `lastEvidenceAt`, `decayPolicy`, `supersededByEdgeId`, `evidenceRefs`). Offer/shift memory learning now writes episodes and stamps edge evidence without changing ranking weights; evals cover episode creation, repeated evidence metadata, and compliance boundaries.
+- ✅ Temporal Fit Graph scoring v1 — ranking now scores active operational/shared `MemoryEdge` evidence with bounded temporal scoring (`weight`, `confidence`, evidence count, recency, expiry/supersession and decay policy) while keeping memory's overall ranking weight unchanged. `memory.influence` audits include temporal score components and exclusion reasons; evals cover recent/stale/expired/superseded/negative evidence plus compliance and privacy boundaries.
+- ✅ Memory Controls / Review UX v1 — employer and worker apps expose richer "What V remembers" controls with governance metadata, confirm/archive/edit/delete actions, worker private-to-operational promotion, and source/typed/expiry context. Admin Memory review now includes episode, edge and temporal influence evidence; seeded demo data includes active, private, CPD and pending connector memory fixtures.
+- ✅ Memory consolidation v1 — `MemoryReviewSuggestion` stores review-gated archive, merge, supersede, contradiction and confirm-pattern suggestions. Admin Memory review exposes consolidation actions via `GET /v1/admin/memory/consolidation` plus apply/reject routes; applying suggestions archives stale memories, merges duplicates, supersedes weak edges, or creates pending-confirmation pattern memories. Evals and smoke coverage verify no automatic operational mutation happens without review.
 
 ---
 

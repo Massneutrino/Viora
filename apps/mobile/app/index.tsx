@@ -20,6 +20,7 @@ interface ShiftOffer {
   rateExplanation?: string;
   travelMinutes?: number;
   fitExplanation: string;
+  memoryReasons: Array<{ id: string; title: string; detail: string; visibility: string }>;
 }
 
 function mapOfferFromApi(raw: Record<string, unknown>): ShiftOffer {
@@ -40,6 +41,16 @@ function mapOfferFromApi(raw: Record<string, unknown>): ShiftOffer {
     rateExplanation: typeof raw.rateExplanation === "string" ? raw.rateExplanation : undefined,
     travelMinutes: typeof raw.travelMinutes === "number" ? raw.travelMinutes : travelMinutes,
     fitExplanation: String(raw.fitReason ?? fitExplanation),
+    memoryReasons: Array.isArray(raw.memoryReasons)
+      ? raw.memoryReasons
+          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+          .map((item) => ({
+            id: String(item.id),
+            title: String(item.title ?? ""),
+            detail: String(item.detail ?? ""),
+            visibility: String(item.visibility ?? ""),
+          }))
+      : [],
   };
 }
 
@@ -121,6 +132,13 @@ export default function SwipeDeckScreen() {
               <Text style={styles.meta}>{offer.travelMinutes} min travel</Text>
             )}
             <Text style={styles.fit}>{offer.fitExplanation}</Text>
+            {offer.memoryReasons.slice(0, 2).map((reason) => (
+              <View key={reason.id} style={styles.memoryReason}>
+                <Text style={styles.memoryTitle}>{reason.title}</Text>
+                <Text style={styles.memoryDetail}>{reason.detail}</Text>
+                <Text style={styles.memoryMeta}>{reason.visibility}</Text>
+              </View>
+            ))}
             {offer.rateMode === "dynamic" && offer.rateExplanation && (
               <Text style={styles.dynamicExplanation}>{offer.rateExplanation}</Text>
             )}
@@ -176,6 +194,15 @@ const styles = StyleSheet.create({
   dynamic: { color: "#22c55e", fontSize: 12, fontWeight: "600", marginTop: 8 },
   meta: { color: "#94a3b8", marginTop: 8 },
   fit: { color: "#cbd5e1", marginTop: 16, lineHeight: 22 },
+  memoryReason: {
+    borderTopWidth: 1,
+    borderTopColor: "#2d3a4f",
+    paddingTop: 10,
+    marginTop: 10,
+  },
+  memoryTitle: { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
+  memoryDetail: { color: "#94a3b8", marginTop: 3, lineHeight: 18 },
+  memoryMeta: { color: "#64748b", marginTop: 4, fontSize: 11, textTransform: "uppercase" },
   dynamicExplanation: { color: "#86efac", marginTop: 12, lineHeight: 20 },
   actions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btn: { flex: 1, padding: 14, borderRadius: 10, alignItems: "center" },

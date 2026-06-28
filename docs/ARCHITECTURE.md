@@ -65,6 +65,19 @@ Core entities (see `packages/database/prisma/schema.prisma`):
 
 **Out of scope:** phone voice agent, full Passport v1, geofenced check-in, Dynamic Rate/L3+ negotiation rollout, Viora Pay, security vertical, Viora Connect API.
 
+## MCP architecture decision
+
+Viora does not use MCP as an internal application architecture in Phase 0. The Fastify REST API remains the product and orchestration boundary; `packages/agents` remains the typed agent boundary; `packages/domain` remains the deterministic compliance and scoring boundary; Prisma remains the data-access boundary.
+
+MCP is reserved for a future external interoperability gateway, not for replacing REST routes, agent interfaces, or domain services. If Viora adds MCP, it should be a separate edge adapter such as `apps/mcp-gateway` that exposes a narrow, permissioned surface to trusted AI hosts and delegates all real business operations back to existing API/service code.
+
+Initial MCP candidates should be read-only or review-gated:
+
+- Resources: Phase 0 scope, memory export, audit timelines, memory import schemas.
+- Tools: reviewed memory import/export, booking intake draft, booking status lookup, audit search.
+
+Do not expose direct matching, offer broadcast, compliance override, Dynamic Rate negotiation, or worker-private memory through MCP until authentication, tenant scoping, consent, deletion propagation, guardrail enforcement, and `AuditEvent` coverage are proven. MCP tools must never infer compliance eligibility; they can only call the deterministic Viora compliance path.
+
 ## Build order (recommended)
 
 1. **Database + seed data** — organisations, sites, workers with compliance docs

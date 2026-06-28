@@ -126,6 +126,7 @@ export interface MemoryInfluenceInput {
   useScopes: MemoryUseScope[];
   outcome: string;
   note?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /** Memory Agent — writes and retrieves Viora Memory. */

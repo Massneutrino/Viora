@@ -8,6 +8,7 @@ import type {
   MemoryUseScope,
   MemoryVisibility,
 } from "@viora/domain";
+import { validateMemoryValue } from "@viora/domain";
 import { createLLMClient } from "./llm.js";
 import type { AgentActionResult, MemoryAgent, MemoryContext, MemoryEventInput } from "./types.js";
 
@@ -178,6 +179,14 @@ function workerVisibilityFor(audience: MemoryAudience, includePrivate?: boolean)
   return ["operational", "shared"];
 }
 
+function evidenceRefs(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 async function writeMemoryAudit(
   db: PrismaClient,
   action: string,
@@ -215,6 +224,8 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
       const confidence = Math.max(0, Math.min(1, candidate.confidence));
       const status = memoryStatus({ ...candidate, confidence }, visibility);
       const useScopes: MemoryUseScope[] = candidate.sensitive ? ["profile"] : defaultUseScopes(input.ownerType, visibility);
+      const valueValidation = validateMemoryValue(kind, candidate.value);
+      if (!valueValidation.ok) continue;
 
       const duplicate = await db.memoryEntry.findFirst({
         where: {
@@ -272,7 +283,23 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
     sourceRefType?: string;
     sourceRefId?: string;
     visibility?: MemoryVisibility;
+    entityType?: string;
+    entityId?: string;
+    outcome?: string;
+    metadata?: Prisma.InputJsonValue;
   }) {
+    const occurredAt = new Date();
+    const evidenceRef = {
+      sourceType: input.sourceType,
+      sourceRefType: input.sourceRefType ?? null,
+      sourceRefId: input.sourceRefId ?? null,
+      entityType: input.entityType ?? input.sourceRefType ?? null,
+      entityId: input.entityId ?? input.sourceRefId ?? null,
+      outcome: input.outcome ?? "observed",
+      occurredAt: occurredAt.toISOString(),
+      delta: input.delta,
+      confidence: input.confidence,
+    };
     const existing = await db.memoryEdge.findFirst({
       where: {
         ownerType: input.ownerType,
@@ -284,8 +311,9 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
         kind: input.kind,
       },
     });
+    let edge;
     if (existing) {
-      return db.memoryEdge.update({
+      edge = await db.memoryEdge.update({
         where: { id: existing.id },
         data: {
           weight: Math.max(-1, Math.min(1, existing.weight + input.delta)),
@@ -296,27 +324,66 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           sourceRefType: input.sourceRefType,
           sourceRefId: input.sourceRefId,
           status: "active",
+          lastEvidenceAt: occurredAt,
+          evidenceRefs: [...evidenceRefs(existing.evidenceRefs), evidenceRef].slice(-20) as Prisma.InputJsonValue,
+        },
+      });
+    } else {
+      edge = await db.memoryEdge.create({
+        data: {
+          ownerType: input.ownerType,
+          ownerId: input.ownerId,
+          fromType: input.fromType,
+          fromId: input.fromId,
+          toType: input.toType,
+          toId: input.toId,
+          kind: input.kind,
+          label: input.label,
+          weight: Math.max(-1, Math.min(1, input.delta)),
+          confidence: input.confidence,
+          sourceType: input.sourceType,
+          sourceRefType: input.sourceRefType,
+          sourceRefId: input.sourceRefId,
+          visibility: input.visibility ?? "operational",
+          validFrom: occurredAt,
+          lastEvidenceAt: occurredAt,
+          decayPolicy: "none",
+          evidenceRefs: [evidenceRef] as Prisma.InputJsonValue,
         },
       });
     }
-    return db.memoryEdge.create({
+
+    await db.memoryEpisode.create({
       data: {
         ownerType: input.ownerType,
         ownerId: input.ownerId,
-        fromType: input.fromType,
-        fromId: input.fromId,
-        toType: input.toType,
-        toId: input.toId,
+        subjectType: input.toType,
+        subjectId: input.toId,
         kind: input.kind,
         label: input.label,
-        weight: Math.max(-1, Math.min(1, input.delta)),
-        confidence: input.confidence,
         sourceType: input.sourceType,
         sourceRefType: input.sourceRefType,
         sourceRefId: input.sourceRefId,
-        visibility: input.visibility ?? "operational",
+        entityType: input.entityType ?? input.sourceRefType,
+        entityId: input.entityId ?? input.sourceRefId,
+        outcome: input.outcome ?? "observed",
+        occurredAt,
+        affectedMemoryIds: [],
+        affectedEdgeIds: [edge.id],
+        metadata: {
+          ...jsonObject(input.metadata),
+          fromType: input.fromType,
+          fromId: input.fromId,
+          toType: input.toType,
+          toId: input.toId,
+          delta: input.delta,
+          confidence: input.confidence,
+          edgeWeight: edge.weight,
+        } as Prisma.InputJsonValue,
       },
     });
+
+    return edge;
   }
 
   return {
@@ -414,6 +481,10 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           sourceRefType: "Offer",
           sourceRefId: offer.id,
           visibility: "operational",
+          entityType: "Offer",
+          entityId: offer.id,
+          outcome,
+          metadata: { bookingRequestId: offer.bookingRequestId, roleType: role, siteId: site.id } as Prisma.InputJsonValue,
         }),
         reinforceEdge({
           ownerType: "worker",
@@ -430,6 +501,10 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           sourceRefType: "Offer",
           sourceRefId: offer.id,
           visibility: "operational",
+          entityType: "Offer",
+          entityId: offer.id,
+          outcome,
+          metadata: { bookingRequestId: offer.bookingRequestId, roleType: role, siteId: site.id } as Prisma.InputJsonValue,
         }),
         reinforceEdge({
           ownerType: "organisation",
@@ -446,6 +521,10 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           sourceRefType: "Offer",
           sourceRefId: offer.id,
           visibility: "operational",
+          entityType: "Offer",
+          entityId: offer.id,
+          outcome,
+          metadata: { bookingRequestId: offer.bookingRequestId, roleType: role, siteId: site.id } as Prisma.InputJsonValue,
         }),
       ]);
 
@@ -497,6 +576,14 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
         sourceType: "system_event",
         sourceRefType: "Shift",
         sourceRefId: shift.id,
+        entityType: "Shift",
+        entityId: shift.id,
+        outcome,
+        metadata: {
+          bookingId: shift.bookingId,
+          workerId: shift.booking.workerId,
+          siteId: shift.booking.siteId,
+        } as Prisma.InputJsonValue,
       });
 
       await writeMemoryAudit(
@@ -532,11 +619,13 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           edgeIds: input.edgeIds ?? [],
           useScopes: input.useScopes,
           note: input.note ?? null,
+          metadata: input.metadata ?? null,
         } as Prisma.InputJsonValue,
         {
           influencedAction: input.action,
           memoryCount: input.memoryIds.length,
           edgeCount: input.edgeIds?.length ?? 0,
+          metadata: input.metadata ?? null,
         } as Prisma.InputJsonValue,
         input.outcome,
       );
@@ -629,9 +718,13 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
             ownerId: { in: workerIds },
             status: "active",
             visibility: { in: ["operational", "shared"] },
-            OR: [
-              { toType: "site", toId: opts.siteId },
-              { toType: "role", toId: opts.roleType },
+            AND: [
+              {
+                OR: [
+                  { toType: "site", toId: opts.siteId },
+                  { toType: "role", toId: opts.roleType },
+                ],
+              },
             ],
           },
           orderBy: [{ weight: "desc" }, { confidence: "desc" }],

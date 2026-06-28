@@ -3,7 +3,7 @@ import { PHASE_0_MUST_HAVE } from "@viora/domain";
 import { ApprovalsQueue, type ApprovalQueueItem } from "./approvals-queue";
 import { BookingsOps, type BookingOpsItem, type UnfilledShift } from "./bookings-ops";
 import { ComplianceQueue, type ComplianceQueueItem } from "./compliance-queue";
-import { MemoryReview, type MemoryReviewItem } from "./memory-review";
+import { MemoryConsolidation, MemoryEvidence, MemoryReview, type MemoryConsolidationSuggestion, type MemoryEvidenceData, type MemoryReviewItem } from "./memory-review";
 import { MemoryLab, type MemoryLabState } from "./memory-lab";
 import { DemoPersonas } from "./demo-personas";
 import { SandboxPanel } from "./sandbox-panel";
@@ -23,6 +23,8 @@ import {
 } from "./ui";
 
 export type { MemoryReviewItem };
+export type { MemoryEvidenceData };
+export type { MemoryConsolidationSuggestion };
 export type { MemoryLabState };
 export type { UnfilledShift } from "./bookings-ops";
 export type { MemoryImpactStats };
@@ -82,6 +84,8 @@ export interface ConsoleData {
   compliance: ComplianceQueueItem[];
   approvals: ApprovalQueueItem[];
   memory: MemoryReviewItem[];
+  memoryEvidence: MemoryEvidenceData;
+  memoryConsolidation: MemoryConsolidationSuggestion[];
   pilotLeads: PilotLead[];
   audit: AuditEvent[];
   negotiations: DynamicRateRecord[];
@@ -277,6 +281,12 @@ export function OperationsSection({ data }: { data: ConsoleData }) {
       </Panel>
       <Panel title="Memory review" description="Inferred memories pending confirmation">
         <MemoryReview initial={memory} />
+      </Panel>
+      <Panel title="Memory evidence" description="Episodes, graph edges and temporal influence audit">
+        <MemoryEvidence initial={data.memoryEvidence} />
+      </Panel>
+      <Panel title="Memory consolidation" description="Review stale, duplicate and conflicting memory suggestions">
+        <MemoryConsolidation initial={data.memoryConsolidation} />
       </Panel>
       <Panel title="Unfilled shifts & bookings" description="Broadcast, assign, cancel, and reopen">
         <BookingsOps initialUnfilled={unfilled} initialBookings={bookingOps} />

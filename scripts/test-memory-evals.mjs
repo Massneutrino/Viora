@@ -103,6 +103,203 @@ function validateExtractionFixtures() {
   }
 }
 
+async function validateTypedValueFixtures() {
+  const {
+    cpdTrainingSignalTypes,
+    isCpdTrainingSignalRankingEligible,
+    validateMemoryValue,
+    memoryValueTypes,
+  } = await import("@viora/domain");
+  const knownTypes = new Set(memoryValueTypes());
+  const coveredCpdSignalTypes = new Set();
+  assert(Array.isArray(fixtures.typedValueCases), "Fixture file must include typedValueCases.");
+  for (const testCase of fixtures.typedValueCases) {
+    assert(typeof testCase.name === "string" && testCase.name, "Typed value case is missing a name.");
+    assert(MEMORY_KINDS.has(testCase.kind), `${testCase.name}: invalid kind ${testCase.kind}.`);
+    assert(testCase.value && typeof testCase.value === "object", `${testCase.name}: value must be an object.`);
+    assert(knownTypes.has(testCase.value.valueType), `${testCase.name}: unknown valueType.`);
+    const result = validateMemoryValue(testCase.kind, testCase.value);
+    assert(
+      result.ok === testCase.valid,
+      `${testCase.name}: expected valid=${testCase.valid}, got errors: ${result.errors.join("; ")}`,
+    );
+    if (testCase.valid && testCase.value.valueType === "cpd_training_signal") {
+      coveredCpdSignalTypes.add(testCase.value.signalType);
+      const rankingEligible = isCpdTrainingSignalRankingEligible(testCase.value);
+      assert(
+        rankingEligible === ["completed_cpd", "training_impact_evidence"].includes(testCase.value.signalType),
+        `${testCase.name}: unexpected CPD ranking eligibility.`,
+      );
+    }
+  }
+  for (const signalType of cpdTrainingSignalTypes()) {
+    assert(coveredCpdSignalTypes.has(signalType), `Missing typed CPD fixture for ${signalType}.`);
+  }
+}
+
+async function validateTemporalScoringFixtures() {
+  const { scoreTemporalMemoryEdges } = await import("@viora/domain");
+  assert(Array.isArray(fixtures.temporalScoringCases), "Fixture file must include temporalScoringCases.");
+  const now = new Date("2026-06-27T12:00:00.000Z");
+  for (const testCase of fixtures.temporalScoringCases) {
+    const edges = testCase.edges.map((edge) => ({
+      id: edge.id,
+      ownerId: edge.ownerId ?? "worker-temporal",
+      weight: edge.weight,
+      confidence: edge.confidence,
+      evidenceCount: edge.evidenceCount,
+      status: edge.status ?? "active",
+      visibility: edge.visibility ?? "operational",
+      validFrom: new Date(edge.validFrom ?? "2026-01-01T00:00:00.000Z"),
+      validUntil: edge.validUntil ? new Date(edge.validUntil) : null,
+      lastEvidenceAt: edge.lastEvidenceAt ? new Date(edge.lastEvidenceAt) : null,
+      decayPolicy: edge.decayPolicy ?? "none",
+      supersededByEdgeId: edge.supersededByEdgeId ?? null,
+    }));
+    const result = scoreTemporalMemoryEdges(edges, now);
+    for (const expected of testCase.expectedIncluded ?? []) {
+      const actual = result.included.find((score) => score.edgeId === expected.id);
+      assert(actual, `${testCase.name}: expected ${expected.id} to be included.`);
+      if (expected.minScore !== undefined) {
+        assert(actual.score >= expected.minScore, `${testCase.name}: ${expected.id} score too low.`);
+      }
+      if (expected.maxScore !== undefined) {
+        assert(actual.score <= expected.maxScore, `${testCase.name}: ${expected.id} score too high.`);
+      }
+    }
+    for (const expected of testCase.expectedExcluded ?? []) {
+      const actual = result.excluded.find((exclusion) => exclusion.edgeId === expected.id);
+      assert(actual, `${testCase.name}: expected ${expected.id} to be excluded.`);
+      assert(actual.reason === expected.reason, `${testCase.name}: ${expected.id} excluded for ${actual.reason}.`);
+    }
+    log(testCase.name);
+  }
+}
+
+async function runTypedValueRouteEvals(app, refs) {
+  const validCase = fixtures.typedValueCases.find((testCase) => testCase.name === "site_instruction_value");
+  assert(validCase, "Missing site_instruction_value typed value case.");
+  const createRes = await app.inject({
+    method: "POST",
+    url: `/v1/organisations/${refs.organisation}/memory`,
+    payload: {
+      subjectType: "site",
+      subjectId: refs.site,
+      kind: validCase.kind,
+      title: "Typed site instruction",
+      content: "Sign in at reception before registration.",
+      value: validCase.value,
+      visibility: "operational",
+      useScopes: ["intake_default", "briefing", "explanation"],
+      actorId: "memory-eval",
+    },
+  });
+  assert(createRes.statusCode === 201, `typed memory create failed (${createRes.statusCode}): ${createRes.body}`);
+  const created = JSON.parse(createRes.body).memory;
+  assert(created.value.valueType === "site_instruction", "typed memory create did not persist valueType.");
+
+  const invalidCase = fixtures.typedValueCases.find((testCase) => testCase.name === "invalid_pay_missing_rate_unit");
+  assert(invalidCase, "Missing invalid_pay_missing_rate_unit typed value case.");
+  const invalidRes = await app.inject({
+    method: "POST",
+    url: `/v1/workers/${refs.workers.eligible_preferred}/memory`,
+    payload: {
+      kind: invalidCase.kind,
+      title: "Invalid pay expectation",
+      content: "This should fail typed value validation.",
+      value: invalidCase.value,
+      actorId: "memory-eval",
+    },
+  });
+  assert(
+    invalidRes.statusCode >= 400 && invalidRes.statusCode < 500,
+    `invalid typed memory create unexpectedly succeeded (${invalidRes.statusCode}).`,
+  );
+  log("typed memory value route validation");
+}
+
+async function runMemoryControlsEvals(app, refs) {
+  const privateRes = await app.inject({
+    method: "POST",
+    url: `/v1/workers/${refs.workers.eligible_preferred}/memory`,
+    payload: {
+      kind: "preference",
+      title: "Private control memory",
+      content: "Worker-only control memory for UI governance tests.",
+      visibility: "private",
+      actorId: "memory-eval",
+    },
+  });
+  assert(privateRes.statusCode === 201, `private memory create failed (${privateRes.statusCode}): ${privateRes.body}`);
+  const privateMemory = JSON.parse(privateRes.body).memory;
+
+  const workerPrivateList = await injectJson(
+    app,
+    `/v1/workers/${refs.workers.eligible_preferred}/memory?visibility=private&search=control`,
+  );
+  assert(
+    workerPrivateList.memories.some((memory) => memory.id === privateMemory.id),
+    "Worker memory controls did not list own private memory with filters.",
+  );
+
+  const orgMemoryList = await injectJson(app, `/v1/organisations/${refs.organisation}/memory?search=control`);
+  assert(
+    !orgMemoryList.memories.some((memory) => memory.id === privateMemory.id),
+    "Employer memory controls listed worker-private memory.",
+  );
+
+  const promotedRes = await app.inject({
+    method: "PATCH",
+    url: `/v1/workers/${refs.workers.eligible_preferred}/memory/${privateMemory.id}`,
+    payload: {
+      visibility: "operational",
+      status: "active",
+      useScopes: ["profile", "ranking_signal", "briefing", "explanation"],
+      actorId: "memory-eval",
+    },
+  });
+  assert(promotedRes.statusCode === 200, `memory promotion failed (${promotedRes.statusCode}): ${promotedRes.body}`);
+
+  const promotedList = await injectJson(
+    app,
+    `/v1/workers/${refs.workers.eligible_preferred}/memory?visibility=operational&scope=ranking_signal&search=control`,
+  );
+  assert(
+    promotedList.memories.some((memory) => memory.id === privateMemory.id),
+    "Promoted operational memory was not visible to worker controls.",
+  );
+
+  const archivedRes = await app.inject({
+    method: "PATCH",
+    url: `/v1/workers/${refs.workers.eligible_preferred}/memory/${privateMemory.id}`,
+    payload: { status: "archived", actorId: "memory-eval" },
+  });
+  assert(archivedRes.statusCode === 200, `memory archive failed (${archivedRes.statusCode}): ${archivedRes.body}`);
+
+  const activeList = await injectJson(
+    app,
+    `/v1/workers/${refs.workers.eligible_preferred}/memory?scope=ranking_signal&search=control`,
+  );
+  assert(
+    !activeList.memories.some((memory) => memory.id === privateMemory.id),
+    "Archived memory still appeared in active memory controls list.",
+  );
+
+  log("memory controls filters and promotion/archive");
+}
+
+function runTypedValueSeedEvals(refs) {
+  const typedRefs = [
+    "org_active_instruction",
+    "worker_operational_fit",
+    "worker_private_preference",
+  ];
+  for (const ref of typedRefs) {
+    assert(refs.memories[ref], `typed seed missing ${ref}.`);
+  }
+  log("typed memory value fixtures");
+}
+
 async function cleanup(prisma) {
   const passports = await prisma.passport.findMany({
     where: { workerId: { startsWith: runId } },
@@ -111,6 +308,26 @@ async function cleanup(prisma) {
   const passportIds = passports.map((passport) => passport.id);
 
   await prisma.auditEvent.deleteMany({ where: { entityId: { startsWith: runId } } });
+  await prisma.memoryReviewSuggestion.deleteMany({
+    where: {
+      OR: [
+        { ownerId: { startsWith: runId } },
+        { affectedMemoryIds: { has: id("memory-consolidation-stale") } },
+      ],
+    },
+  });
+  await prisma.memoryEpisode.deleteMany({
+    where: {
+      OR: [
+        { ownerId: { startsWith: runId } },
+        { subjectId: { startsWith: runId } },
+        { sourceRefId: { startsWith: runId } },
+        { entityId: { startsWith: runId } },
+      ],
+    },
+  });
+  await prisma.shift.deleteMany({ where: { booking: { id: { startsWith: runId } } } });
+  await prisma.booking.deleteMany({ where: { id: { startsWith: runId } } });
   await prisma.offer.deleteMany({ where: { bookingRequestId: { startsWith: runId } } });
   await prisma.match.deleteMany({ where: { bookingRequestId: { startsWith: runId } } });
   await prisma.bookingRequest.deleteMany({ where: { id: { startsWith: runId } } });
@@ -282,6 +499,12 @@ async function seedEvalData(prisma) {
       visibility: "operational",
       useScopes: ["intake_default", "briefing", "explanation"],
       expiresAt: null,
+      value: {
+        valueType: "site_instruction",
+        instruction: "Tell workers to sign in at reception and collect behaviour notes.",
+        appliesTo: [roleType],
+        priority: "high",
+      },
     },
     {
       ref: "org_expired_instruction",
@@ -321,6 +544,78 @@ async function seedEvalData(prisma) {
       visibility: "operational",
       useScopes: ["ranking_signal", "explanation"],
       expiresAt: null,
+      value: {
+        valueType: "role_confidence",
+        roleType,
+        confidence: 0.9,
+        evidence: "Strong repeat fit for this site.",
+      },
+    },
+    {
+      ref: "worker_completed_cpd",
+      ownerType: "worker",
+      ownerId: refs.workers.eligible_preferred,
+      subjectType: "worker",
+      subjectId: refs.workers.eligible_preferred,
+      kind: "fit_signal",
+      title: "Completed safeguarding CPD",
+      content: "Worker completed Safeguarding Level 2 CPD.",
+      visibility: "operational",
+      useScopes: ["ranking_signal", "briefing", "explanation"],
+      expiresAt: null,
+      value: {
+        valueType: "cpd_training_signal",
+        signalType: "completed_cpd",
+        trainingName: "Safeguarding Level 2",
+        status: "completed",
+        roleTypes: [roleType],
+        sector: "education",
+        provider: "Viora Academy",
+        completedAt: "2026-06-01T00:00:00.000Z",
+      },
+    },
+    {
+      ref: "worker_private_cpd_gap",
+      ownerType: "worker",
+      ownerId: refs.workers.eligible_preferred,
+      subjectType: "worker",
+      subjectId: refs.workers.eligible_preferred,
+      kind: "preference",
+      title: "Private CPD confidence gap",
+      content: "Worker privately wants support with KS2 behaviour confidence.",
+      visibility: "private",
+      useScopes: ["profile", "briefing", "explanation"],
+      expiresAt: null,
+      value: {
+        valueType: "cpd_training_signal",
+        signalType: "confidence_gap",
+        trainingName: "KS2 behaviour support",
+        status: "recommended",
+        roleTypes: [roleType],
+        sector: "education",
+      },
+    },
+    {
+      ref: "ineligible_completed_cpd",
+      ownerType: "worker",
+      ownerId: refs.workers.ineligible_strong_memory,
+      subjectType: "worker",
+      subjectId: refs.workers.ineligible_strong_memory,
+      kind: "fit_signal",
+      title: "Ineligible worker completed CPD",
+      content: "Ineligible worker has a strong completed CPD memory but must still fail compliance.",
+      visibility: "operational",
+      useScopes: ["ranking_signal", "explanation"],
+      expiresAt: null,
+      value: {
+        valueType: "cpd_training_signal",
+        signalType: "completed_cpd",
+        trainingName: "Safeguarding Level 2",
+        status: "completed",
+        roleTypes: [roleType],
+        sector: "education",
+        completedAt: "2026-06-01T00:00:00.000Z",
+      },
     },
     {
       ref: "worker_private_preference",
@@ -332,8 +627,13 @@ async function seedEvalData(prisma) {
       title: "Private commute preference",
       content: "Private worker-only commute preference.",
       visibility: "private",
-      useScopes: ["profile", "ranking_signal"],
+      useScopes: ["profile", "ranking_signal", "explanation"],
       expiresAt: null,
+      value: {
+        valueType: "commute_preference",
+        maxMinutes: 35,
+        exception: "Worker-only private preference.",
+      },
     },
     {
       ref: "worker_profile_only_preference",
@@ -377,7 +677,7 @@ async function seedEvalData(prisma) {
         key: `${runId}_${seed.ref}`,
         title: seed.title,
         content: seed.content,
-        value: { evalRef: seed.ref },
+        value: { evalRef: seed.ref, ...(seed.value ?? {}) },
         sourceType: "system_event",
         sourceRefType: "MemoryEval",
         sourceRefId: runId,
@@ -403,6 +703,8 @@ async function seedEvalData(prisma) {
       weight: 1,
       confidence: 1,
       label: "Eligible worker has strong site fit.",
+      lastEvidenceAt: new Date(),
+      decayPolicy: "linear_365d",
     },
     {
       ref: "ineligible_strong_site_fit",
@@ -412,6 +714,33 @@ async function seedEvalData(prisma) {
       weight: 1,
       confidence: 1,
       label: "Ineligible worker has strong site fit.",
+      lastEvidenceAt: new Date(),
+      decayPolicy: "linear_365d",
+    },
+    {
+      ref: "baseline_expired_site_fit",
+      ownerId: refs.workers.eligible_baseline,
+      fromId: refs.workers.eligible_baseline,
+      toId: refs.site,
+      weight: 1,
+      confidence: 1,
+      label: "Expired fit signal should not boost baseline worker.",
+      validUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      lastEvidenceAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000),
+      decayPolicy: "linear_365d",
+    },
+    {
+      ref: "baseline_negative_role_risk",
+      ownerId: refs.workers.eligible_baseline,
+      fromId: refs.workers.eligible_baseline,
+      toType: "role",
+      toId: roleType,
+      kind: "risk",
+      weight: -0.7,
+      confidence: 0.8,
+      label: "Recent risk signal should lower baseline worker within bounds.",
+      lastEvidenceAt: new Date(),
+      decayPolicy: "linear_365d",
     },
   ];
   for (const seed of edgeSeeds) {
@@ -424,9 +753,9 @@ async function seedEvalData(prisma) {
         ownerId: seed.ownerId,
         fromType: "worker",
         fromId: seed.fromId,
-        toType: "site",
+        toType: seed.toType ?? "site",
         toId: seed.toId,
-        kind: "fit_signal",
+        kind: seed.kind ?? "fit_signal",
         label: seed.label,
         weight: seed.weight,
         confidence: seed.confidence,
@@ -436,6 +765,9 @@ async function seedEvalData(prisma) {
         sourceRefId: runId,
         visibility: "operational",
         status: "active",
+        validUntil: seed.validUntil,
+        lastEvidenceAt: seed.lastEvidenceAt,
+        decayPolicy: seed.decayPolicy ?? "none",
       },
     });
   }
@@ -489,6 +821,38 @@ async function runRetrievalEvals(app, refs) {
   }
 }
 
+async function runCpdRetrievalEvals(app, refs) {
+  const rankingContext = await app.agents.memory.getWorkerRankingContext(Object.values(refs.workers), {
+    siteId: refs.site,
+    roleType,
+  });
+  const rankingMemoryIds = rankingContext.entries.map((memory) => memory.id);
+  assert(
+    rankingMemoryIds.includes(refs.memories.worker_completed_cpd),
+    "Operational completed CPD was not available to ranking context.",
+  );
+  assert(
+    !rankingMemoryIds.includes(refs.memories.worker_private_cpd_gap),
+    "Private CPD confidence gap leaked into employer ranking context.",
+  );
+
+  const briefingContext = await app.agents.memory.getWorkerContext(refs.workers.eligible_preferred, {
+    purpose: "briefing",
+    audience: "worker",
+    roleType,
+  });
+  const briefingMemoryIds = briefingContext.entries.map((memory) => memory.id);
+  assert(
+    briefingMemoryIds.includes(refs.memories.worker_completed_cpd),
+    "Operational completed CPD was not available to worker briefing context.",
+  );
+  assert(
+    briefingMemoryIds.includes(refs.memories.worker_private_cpd_gap),
+    "Worker-facing briefing context did not include the worker's private CPD gap.",
+  );
+  log("cpd memory retrieval boundaries");
+}
+
 async function runRankingEvals(app, prisma, refs) {
   const result = await app.agents.market.rankCandidates(refs.bookingRequest);
   assert(result.success, `ranking failed: ${result.explanation}`);
@@ -521,6 +885,16 @@ async function runRankingEvals(app, prisma, refs) {
   assert(influence, `${influenceCase.name}: memory.influence audit row was not written.`);
   assert(influence.outcome === influenceCase.expectedOutcome, `${influenceCase.name}: unexpected audit outcome.`);
   assert(influence.inputs?.action === influenceCase.action, `${influenceCase.name}: unexpected influenced action.`);
+  const temporalMetadata = influence.inputs?.metadata?.temporalMemory;
+  assert(temporalMetadata, `${influenceCase.name}: temporal scoring metadata missing from influence audit.`);
+  assert(
+    temporalMetadata.excludedByReason?.expired >= 1,
+    `${influenceCase.name}: expired temporal edge exclusion was not audited.`,
+  );
+  assert(
+    temporalMetadata.scores?.some((score) => score.edgeId === refs.edges.eligible_preferred_site_fit),
+    `${influenceCase.name}: included temporal edge score was not audited.`,
+  );
   assertRefsPresent(
     influence.inputs?.memoryIds ?? [],
     influenceCase.expectedMemoryRefs,
@@ -534,6 +908,117 @@ async function runRankingEvals(app, prisma, refs) {
     influenceCase.name,
   );
   log(influenceCase.name);
+
+  const matchesResponse = await injectJson(app, `/v1/bookings/${refs.bookingRequest}/matches`);
+  const employerReasonIds = (matchesResponse.memoryReasons ?? []).map((reason) => reason.id);
+  assert(
+    employerReasonIds.includes(refs.memories.worker_operational_fit) ||
+      employerReasonIds.includes(refs.edges.eligible_preferred_site_fit),
+    "ranking memory reasons did not include an operational memory signal.",
+  );
+  assert(
+    !employerReasonIds.includes(refs.memories.worker_private_preference),
+    "employer-facing ranking memory reasons leaked private worker memory.",
+  );
+  assert(
+    !employerReasonIds.includes(refs.memories.worker_private_cpd_gap),
+    "employer-facing ranking memory reasons leaked private CPD memory.",
+  );
+  log("employer-facing memory influence reasons");
+}
+
+async function runOfferExplanationEvals(app, prisma, refs) {
+  const match = await prisma.match.findFirst({
+    where: { bookingRequestId: refs.bookingRequest, workerId: refs.workers.eligible_preferred },
+    orderBy: { rank: "asc" },
+  });
+  assert(match, "offer explanation eval needs an eligible preferred match.");
+
+  const offerId = id("offer-worker-memory-reasons");
+  await prisma.offer.create({
+    data: {
+      id: offerId,
+      bookingRequestId: refs.bookingRequest,
+      workerId: refs.workers.eligible_preferred,
+      matchId: match.id,
+      status: "pending",
+      payRate: 150,
+      fitExplanation: "Memory eval offer for worker-facing explanation.",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+
+  const offerResponse = await injectJson(app, `/v1/workers/${refs.workers.eligible_preferred}/offer`);
+  const workerReasonIds = (offerResponse.offer?.memoryReasons ?? []).map((reason) => reason.id);
+  assert(
+    workerReasonIds.includes(refs.memories.worker_private_preference),
+    "worker-facing offer memory reasons did not include the worker's own private explanation memory.",
+  );
+  log("worker-facing memory influence reasons");
+
+  const offerMemoryResult = await app.agents.memory.recordOfferOutcome(offerId, "accepted");
+  assert(offerMemoryResult.success, `offer outcome memory projection failed: ${offerMemoryResult.explanation}`);
+  const offerEpisodes = await prisma.memoryEpisode.findMany({
+    where: { sourceRefType: "Offer", sourceRefId: offerId },
+  });
+  assert(offerEpisodes.length >= 3, "Offer outcome did not create memory episodes for reinforced edges.");
+  const offerEdges = await prisma.memoryEdge.findMany({
+    where: { sourceRefType: "Offer", sourceRefId: offerId },
+  });
+  assert(
+    offerEdges.every((edge) => edge.lastEvidenceAt && Array.isArray(edge.evidenceRefs)),
+    "Offer outcome did not update edge temporal evidence metadata.",
+  );
+
+  const bookingId = id("booking-worker-memory-reasons");
+  const shiftId = id("shift-worker-memory-reasons");
+  await prisma.booking.create({
+    data: {
+      id: bookingId,
+      bookingRequestId: refs.bookingRequest,
+      organisationId: refs.organisation,
+      siteId: refs.site,
+      workerId: refs.workers.eligible_preferred,
+      offerId,
+      status: "confirmed",
+      roleType,
+      startAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      endAt: new Date(Date.now() + 31 * 60 * 60 * 1000),
+      payRate: 150,
+      vioraFee: 30,
+      totalCost: 180,
+      backupWorkerIds: [],
+      complianceSnapshot: { eval: true },
+    },
+  });
+  await prisma.shift.create({
+    data: {
+      id: shiftId,
+      bookingId,
+      status: "scheduled",
+    },
+  });
+  const shiftMemoryResult = await app.agents.memory.recordShiftEvent(shiftId, "checked_out");
+  assert(shiftMemoryResult.success, `shift memory projection failed: ${shiftMemoryResult.explanation}`);
+  const shiftEpisode = await prisma.memoryEpisode.findFirst({
+    where: { sourceRefType: "Shift", sourceRefId: shiftId },
+  });
+  assert(shiftEpisode, "Shift event did not create a memory episode.");
+
+  const evidence = await injectJson(app, "/v1/admin/memory/evidence");
+  assert(
+    evidence.episodes?.some((episode) => episode.id === shiftEpisode.id),
+    "Admin memory evidence endpoint did not include recent episode.",
+  );
+  assert(
+    evidence.edges?.some((edge) => edge.ownerId === refs.workers.eligible_preferred),
+    "Admin memory evidence endpoint did not include worker edge evidence.",
+  );
+  assert(
+    evidence.influence?.some((event) => event.entityId === refs.bookingRequest),
+    "Admin memory evidence endpoint did not include recent influence audit.",
+  );
+  log("temporal memory episodes and edge evidence");
 }
 
 function countFor(counts, key) {
@@ -594,6 +1079,175 @@ async function runAnalyticsEvals(app, prisma, refs) {
   log(analyticsCase.name);
 }
 
+async function runConsolidationEvals(app, prisma, refs) {
+  const oldDate = new Date(Date.now() - 150 * 24 * 60 * 60 * 1000);
+  const staleId = id("memory-consolidation-stale");
+  const duplicateA = id("memory-consolidation-duplicate-a");
+  const duplicateB = id("memory-consolidation-duplicate-b");
+  const conflictA = id("memory-consolidation-conflict-a");
+  const conflictB = id("memory-consolidation-conflict-b");
+  await prisma.memoryEntry.createMany({
+    data: [
+      {
+        id: staleId,
+        ownerType: "organisation",
+        ownerId: refs.organisation,
+        subjectType: "site",
+        subjectId: refs.site,
+        kind: "briefing_note",
+        key: "consolidation_stale",
+        title: "Old parking note",
+        content: "Use the old car park gate.",
+        sourceType: "user_entered",
+        visibility: "operational",
+        status: "active",
+        useScopes: ["briefing"],
+        sensitivity: "standard",
+        confidence: 0.7,
+        updatedAt: oldDate,
+      },
+      {
+        id: duplicateA,
+        ownerType: "organisation",
+        ownerId: refs.organisation,
+        subjectType: "site",
+        subjectId: refs.site,
+        kind: "instruction",
+        key: "duplicate_arrival",
+        title: "Arrival instruction",
+        content: "Arrive at reception by 08:00.",
+        sourceType: "user_entered",
+        visibility: "operational",
+        status: "active",
+        useScopes: ["briefing"],
+        sensitivity: "standard",
+        confidence: 0.8,
+      },
+      {
+        id: duplicateB,
+        ownerType: "organisation",
+        ownerId: refs.organisation,
+        subjectType: "site",
+        subjectId: refs.site,
+        kind: "instruction",
+        key: "duplicate_arrival",
+        title: "Arrival instruction",
+        content: "Arrive at reception by 08:00 and collect plans.",
+        sourceType: "user_entered",
+        visibility: "operational",
+        status: "active",
+        useScopes: ["briefing"],
+        sensitivity: "standard",
+        confidence: 0.75,
+      },
+      {
+        id: conflictA,
+        ownerType: "worker",
+        ownerId: refs.workers.eligible_preferred,
+        subjectType: "worker",
+        subjectId: refs.workers.eligible_preferred,
+        kind: "pay_signal",
+        key: "pay_floor_old",
+        title: "Pay expectation",
+        content: "Prefers at least 120 per day.",
+        value: { valueType: "pay_expectation", amount: 120, currency: "GBP", rateUnit: "day" },
+        sourceType: "user_entered",
+        visibility: "operational",
+        status: "active",
+        useScopes: ["ranking_signal", "explanation"],
+        sensitivity: "standard",
+        confidence: 0.8,
+      },
+      {
+        id: conflictB,
+        ownerType: "worker",
+        ownerId: refs.workers.eligible_preferred,
+        subjectType: "worker",
+        subjectId: refs.workers.eligible_preferred,
+        kind: "pay_signal",
+        key: "pay_floor_new",
+        title: "Pay expectation",
+        content: "Will not accept less than 165 per day.",
+        value: { valueType: "pay_expectation", amount: 165, currency: "GBP", rateUnit: "day" },
+        sourceType: "user_entered",
+        visibility: "operational",
+        status: "active",
+        useScopes: ["ranking_signal", "explanation"],
+        sensitivity: "standard",
+        confidence: 0.9,
+      },
+    ],
+  });
+
+  await prisma.memoryEpisode.createMany({
+    data: [0, 1, 2].map((idx) => ({
+      id: id(`consolidation-episode-${idx}`),
+      ownerType: "worker",
+      ownerId: refs.workers.eligible_preferred,
+      subjectType: "site",
+      subjectId: refs.site,
+      kind: "fit_signal",
+      label: "Repeated accepted Greenfield shift",
+      sourceType: "system_event",
+      sourceRefType: "Offer",
+      sourceRefId: id(`consolidation-offer-${idx}`),
+      entityType: "Offer",
+      entityId: id(`consolidation-offer-${idx}`),
+      outcome: "accepted",
+      occurredAt: new Date(Date.now() - idx * 24 * 60 * 60 * 1000),
+      affectedMemoryIds: [],
+      affectedEdgeIds: [refs.edges.eligible_preferred_site_fit],
+      metadata: { eval: true },
+    })),
+  });
+
+  const consolidation = await injectJson(app, "/v1/admin/memory/consolidation");
+  const suggestions = consolidation.suggestions ?? [];
+  const archiveSuggestion = suggestions.find((suggestion) => suggestion.action === "archive" && suggestion.affectedMemoryIds.includes(staleId));
+  const mergeSuggestion = suggestions.find((suggestion) => suggestion.action === "merge" && suggestion.affectedMemoryIds.includes(duplicateA) && suggestion.affectedMemoryIds.includes(duplicateB));
+  const conflictSuggestion = suggestions.find((suggestion) => suggestion.action === "needs_human_review" && suggestion.affectedMemoryIds.includes(conflictA) && suggestion.affectedMemoryIds.includes(conflictB));
+  const patternSuggestion = suggestions.find((suggestion) => suggestion.action === "confirm_pattern" && suggestion.affectedEdgeIds.includes(refs.edges.eligible_preferred_site_fit));
+  assert(archiveSuggestion, "Consolidation did not suggest archiving stale memory.");
+  assert(mergeSuggestion, "Consolidation did not suggest merging duplicate memories.");
+  assert(conflictSuggestion, "Consolidation did not suggest review for conflicting memories.");
+  assert(patternSuggestion, "Consolidation did not suggest confirming repeated episode pattern.");
+
+  const rejectRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/memory/consolidation/${conflictSuggestion.id}/reject`,
+    payload: { adminId: "memory-eval" },
+  });
+  assert(rejectRes.statusCode === 200, `Consolidation reject failed (${rejectRes.statusCode}): ${rejectRes.body}`);
+  const conflictRows = await prisma.memoryEntry.findMany({ where: { id: { in: [conflictA, conflictB] } } });
+  assert(conflictRows.every((memory) => memory.status === "active"), "Rejected consolidation mutated conflicting memories.");
+
+  const applyArchive = await app.inject({
+    method: "POST",
+    url: `/v1/admin/memory/consolidation/${archiveSuggestion.id}/apply`,
+    payload: { adminId: "memory-eval" },
+  });
+  assert(applyArchive.statusCode === 200, `Consolidation archive apply failed (${applyArchive.statusCode}): ${applyArchive.body}`);
+  const stale = await prisma.memoryEntry.findUnique({ where: { id: staleId } });
+  assert(stale?.status === "archived", "Applied archive suggestion did not archive stale memory.");
+
+  const applyPattern = await app.inject({
+    method: "POST",
+    url: `/v1/admin/memory/consolidation/${patternSuggestion.id}/apply`,
+    payload: { adminId: "memory-eval" },
+  });
+  assert(applyPattern.statusCode === 200, `Consolidation pattern apply failed (${applyPattern.statusCode}): ${applyPattern.body}`);
+  const patternMemory = await prisma.memoryEntry.findFirst({
+    where: { sourceRefType: "MemoryReviewSuggestion", sourceRefId: patternSuggestion.id },
+  });
+  assert(patternMemory?.status === "pending_confirmation", "Pattern consolidation did not create pending memory.");
+
+  const audit = await prisma.auditEvent.findMany({
+    where: { action: { in: ["memory.consolidation.apply", "memory.consolidation.reject"] } },
+  });
+  assert(audit.length >= 3, "Consolidation apply/reject audit rows were not written.");
+  log("memory consolidation suggestions and review actions");
+}
+
 async function runOptionalExtractionEvals(app, refs) {
   if (!RUN_LLM_EXTRACTION) {
     log("extraction fixture shape validated (set MEMORY_EVAL_RUN_LLM=1 for live LLM extraction)");
@@ -636,6 +1290,8 @@ let app = null;
 
 try {
   validateExtractionFixtures();
+  await validateTypedValueFixtures();
+  await validateTemporalScoringFixtures();
   log("fixture catalog loaded");
 
   const { buildServer } = await import("../apps/api/src/index.ts");
@@ -646,8 +1302,14 @@ try {
   const refs = await seedEvalData(prisma);
   log("isolated eval data seeded");
 
+  runTypedValueSeedEvals(refs);
+  await runTypedValueRouteEvals(app, refs);
+  await runMemoryControlsEvals(app, refs);
   await runRetrievalEvals(app, refs);
+  await runCpdRetrievalEvals(app, refs);
   await runRankingEvals(app, prisma, refs);
+  await runOfferExplanationEvals(app, prisma, refs);
+  await runConsolidationEvals(app, prisma, refs);
   await runAnalyticsEvals(app, prisma, refs);
   await runOptionalExtractionEvals(app, refs);
 

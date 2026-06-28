@@ -11,7 +11,9 @@ Viora ships with a seed script that creates a realistic but minimal demo environ
 npm run db:seed
 ```
 
-The seed refreshes the canonical demo request (`demo-booking-request`) onto tomorrow's date, recreates its pending Alex offer, and upserts worker pay floors used by the Dynamic Rate sandbox scenario.
+The seed refreshes the canonical demo request (`demo-booking-request`) onto tomorrow's date, recreates its pending Alex offer, upserts worker pay floors used by the Dynamic Rate sandbox scenario, and recreates fixed `demo-fixture-*` operational rows for bookings, offers, shifts, timesheets, invoices and memory. Dates are relative to the seed run so the demo does not go stale.
+
+Employer and worker apps use street/city/postcode for display. Latitude/longitude are still seeded internally for matching, commute estimates and GPS check-in.
 
 ---
 
@@ -66,7 +68,7 @@ useIdentity(): {
 | Entity | ID | Description |
 |---|---|---|
 | Organisation | `demo-org` | Greenfield MAT (multi-academy trust, primary) |
-| Site | `demo-site` | Greenfield Primary, 12 School Lane, London |
+| Site | `demo-site` | Greenfield Primary, 12 School Lane, London, SW1A 1AA |
 | EmployerUser | `demo-employer` | Sarah Johnson, cover manager |
 | BookingRequest | `demo-booking-request` | Seeded Greenfield supply teacher shift, refreshed to tomorrow by `npm run db:seed` |
 
@@ -86,6 +88,8 @@ useIdentity(): {
 Each org has its own guardrail policy with role types and budget ceilings tuned to the setting (e.g. day care £120/day for TAs, university £280/day for lecturers/invigilators).
 
 ---
+
+Every seeded employer has visible Home, Bookings, Workers, Finance and Settings data in the employer app. Every seeded worker has profile/passport data plus either shift, offer or earnings history in the worker app.
 
 ## Workers (15)
 

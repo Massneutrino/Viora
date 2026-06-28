@@ -14,12 +14,29 @@ function humanizeRole(s: string): string {
   return s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
 }
 
+function formatGbp(value?: number | null): string {
+  return `£${Number(value ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return "Date TBC"
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(value))
+}
+
+function formatTime(value?: string | null): string {
+  if (!value) return ""
+  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+}
+
 type WorkerProfile = {
   id: string
   firstName: string
   lastName: string
   email: string
   phone?: string | null
+  homeAddress?: string | null
+  homeCity?: string | null
+  homePostcode?: string | null
   homeLatitude?: number | null
   homeLongitude?: number | null
   workRadiusKm?: number | null
@@ -46,6 +63,9 @@ type MemoryEntry = {
   sourceLabel?: string | null
   connectorType?: string | null
   connectorRef?: string | null
+  value?: unknown
+  expiresAt?: string | null
+  updatedAt?: string
   confidence: number
 }
 
@@ -53,6 +73,7 @@ type Offer = {
   id: string
   role: string
   site: string
+  siteAddress?: string
   payPerDay: number
   rateMode?: "standard" | "dynamic"
   rateExplanation?: string
@@ -62,6 +83,56 @@ type Offer = {
   shiftStart?: string
   shiftEnd?: string
   hasBriefing?: boolean
+  memoryReasons?: Array<{
+    id: string
+    type: "memory" | "edge"
+    title: string
+    detail: string
+    kind: string
+    visibility: string
+    sourceLabel?: string | null
+  }>
+}
+
+type WorkerShiftData = {
+  offers: Array<{
+    id: string
+    status: string
+    roleType: string
+    organisationName: string
+    siteName: string
+    siteAddress: string
+    startAt: string
+    endAt: string
+    payRate: number
+  }>
+  bookings: Array<{
+    id: string
+    status: string
+    roleType: string
+    organisationName: string
+    siteName: string
+    siteAddress: string
+    startAt: string
+    endAt: string
+    payRate: number
+    timesheet?: { approved: boolean; hoursWorked: number } | null
+  }>
+}
+
+type EarningsData = {
+  summary: { approvedTotal: number; pendingTotal: number; approvedCount: number; pendingCount: number }
+  timesheets: Array<{
+    id: string
+    approved: boolean
+    hoursWorked: number
+    payRate: number
+    workerTotal: number
+    roleType: string
+    organisationName: string
+    siteName: string
+    startAt: string
+  }>
 }
 
 type PassportDoc = {
@@ -113,6 +184,23 @@ const UPLOAD_TYPES = [
   { type: "reference_letter", label: "Reference" },
   { type: "qts", label: "QTS" },
 ]
+
+function memoryMeta(memory: MemoryEntry): string {
+  const valueType = memory.value && typeof memory.value === "object" && "valueType" in memory.value
+    ? String((memory.value as { valueType?: unknown }).valueType)
+    : null
+  return [
+    memory.visibility,
+    memory.status,
+    `${Math.round((memory.confidence ?? 0) * 100)}%`,
+    (memory.useScopes ?? []).map(humanizeRole).join(", "),
+    memory.sensitivity ?? "standard",
+    memory.sourceLabel,
+    memory.connectorType ? humanizeRole(memory.connectorType) : null,
+    valueType ? humanizeRole(valueType) : null,
+    memory.expiresAt ? `expires ${formatDate(memory.expiresAt)}` : null,
+  ].filter(Boolean).join(" - ")
+}
 
 // ── Icons (currentColor) ────────────────────────────────────────────────────────
 
@@ -409,9 +497,6 @@ function ProfileTab({
   }
 
   const name = `${profile.firstName} ${profile.lastName}`.trim()
-  const home = profile.homeLatitude != null && profile.homeLongitude != null
-    ? `${profile.homeLatitude}, ${profile.homeLongitude}`
-    : ""
 
   return (
     <div style={{ padding: "8px 20px 24px", display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 460, margin: "0 auto" }}>
@@ -429,16 +514,9 @@ function ProfileTab({
 
       <SectionCard title="Personal details">
         <EditableField label="Phone" value={profile.phone} placeholder="Add a phone number" onSave={(v) => patch({ phone: v === "" ? null : v })} />
-        <EditableField
-          label="Home location (lat, lng)" value={home} placeholder="Add coordinates"
-          onSave={async (v) => {
-            if (v === "") return patch({ homeLatitude: null, homeLongitude: null })
-            const [a, b] = v.split(",").map(s => s.trim())
-            const lat = Number(a), lng = Number(b)
-            if (Number.isNaN(lat) || Number.isNaN(lng)) { alert("Use format: latitude, longitude"); throw new Error("bad coords") }
-            return patch({ homeLatitude: lat, homeLongitude: lng })
-          }}
-        />
+        <EditableField label="Street address" value={profile.homeAddress} placeholder="Add a street address" onSave={(v) => patch({ homeAddress: v === "" ? null : v })} />
+        <EditableField label="City" value={profile.homeCity} placeholder="Add a city" onSave={(v) => patch({ homeCity: v === "" ? null : v })} />
+        <EditableField label="Postcode" value={profile.homePostcode} placeholder="Add a postcode" onSave={(v) => patch({ homePostcode: v === "" ? null : v })} />
         <EditableField label="Work radius" type="number" value={profile.workRadiusKm} suffix="km" placeholder="Set radius" onSave={saveNumber("workRadiusKm")} />
       </SectionCard>
 
@@ -454,11 +532,14 @@ function ProfileTab({
             <div>
               <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>{memory.title}</p>
               <p style={{ color: "var(--muted)", fontSize: 11, margin: "2px 0 0", lineHeight: 1.4 }}>{memory.content}</p>
-              <p style={{ color: memory.visibility === "private" ? "var(--accent)" : "var(--faint)", fontSize: 10, margin: "5px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{memory.visibility} · {memory.status} · {(memory.useScopes ?? []).map(humanizeRole).join(", ")} · {memory.sensitivity ?? "standard"}{memory.sourceLabel ? ` · ${memory.sourceLabel}` : ""}{memory.connectorType ? ` · ${humanizeRole(memory.connectorType)}` : ""}</p>
+              <p style={{ color: memory.visibility === "private" ? "var(--accent)" : "var(--faint)", fontSize: 10, margin: "5px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{memoryMeta(memory)}</p>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {memory.status === "pending_confirmation" && (
                 <button onClick={() => void patchMemory(memory.id, { status: "active" })} style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+              )}
+              {memory.status !== "archived" && memory.status !== "deleted" && (
+                <button onClick={() => void patchMemory(memory.id, { status: "archived" })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>Archive</button>
               )}
               <button onClick={() => void patchMemory(memory.id, memory.visibility === "private" ? { visibility: "operational", useScopes: ["profile", "ranking_signal", "briefing", "explanation"], status: "active" } : { visibility: "private", useScopes: ["profile"] })} style={{ border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)", borderRadius: 8, padding: "5px 8px", fontSize: 11, cursor: "pointer" }}>{memory.visibility === "private" ? "Use in matching" : "Make private"}</button>
               <button onClick={() => {
@@ -490,6 +571,97 @@ function ProfileTab({
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+function ShiftHistory({ workerId, apiUrl }: { workerId: string; apiUrl: string }) {
+  const [data, setData] = useState<WorkerShiftData | null>(null)
+
+  useEffect(() => {
+    let active = true
+    fetch(`${apiUrl}/v1/workers/${workerId}/shifts`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => { if (active) setData(json) })
+      .catch(() => { if (active) setData(null) })
+    return () => { active = false }
+  }, [workerId, apiUrl])
+
+  if (!data) return null
+  const upcoming = data.bookings.filter(booking => ["confirmed", "in_progress"].includes(booking.status)).slice(0, 3)
+  const recent = data.bookings.filter(booking => ["completed", "cancelled", "at_risk"].includes(booking.status)).slice(0, 3)
+  const pendingOffers = data.offers.filter(offer => offer.status === "pending").slice(0, 2)
+  if (upcoming.length === 0 && recent.length === 0 && pendingOffers.length === 0) return null
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+      {upcoming.length > 0 && (
+        <SectionCard title="Upcoming">
+          {upcoming.map(booking => (
+            <SettingRow key={booking.id} label={`${humanizeRole(booking.roleType)} at ${booking.siteName}`} sublabel={`${booking.organisationName} · ${formatDate(booking.startAt)} · ${formatTime(booking.startAt)}-${formatTime(booking.endAt)} · ${booking.siteAddress}`}>
+              {formatGbp(booking.payRate)}
+            </SettingRow>
+          ))}
+        </SectionCard>
+      )}
+      {pendingOffers.length > 0 && (
+        <SectionCard title="Open offers">
+          {pendingOffers.map(offer => (
+            <SettingRow key={offer.id} label={`${humanizeRole(offer.roleType)} at ${offer.siteName}`} sublabel={`${offer.organisationName} · ${formatDate(offer.startAt)} · ${formatTime(offer.startAt)}-${formatTime(offer.endAt)} · ${offer.siteAddress}`}>
+              {formatGbp(offer.payRate)}
+            </SettingRow>
+          ))}
+        </SectionCard>
+      )}
+      {recent.length > 0 && (
+        <SectionCard title="Recent shifts">
+          {recent.map(booking => (
+            <SettingRow key={booking.id} label={`${humanizeRole(booking.roleType)} · ${booking.status}`} sublabel={`${booking.organisationName} · ${booking.siteName} · ${formatDate(booking.startAt)} · ${booking.timesheet ? `${booking.timesheet.hoursWorked}h ${booking.timesheet.approved ? "approved" : "pending"}` : "no timesheet"}`}>
+              {formatGbp(booking.payRate)}
+            </SettingRow>
+          ))}
+        </SectionCard>
+      )}
+    </div>
+  )
+}
+
+function EarningsTab({ workerId, apiUrl }: { workerId: string; apiUrl: string }) {
+  const [data, setData] = useState<EarningsData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    fetch(`${apiUrl}/v1/workers/${workerId}/earnings`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => { if (active) setData(json) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [workerId, apiUrl])
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Loading earnings...</div>
+  if (!data) return <div style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>Earnings unavailable.</div>
+
+  return (
+    <div style={{ padding: "8px 20px 24px", display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 460, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}>
+          <p style={{ color: "var(--success)", fontSize: 22, fontWeight: 700, margin: 0 }}>{formatGbp(data.summary.approvedTotal)}</p>
+          <p style={{ color: "var(--muted)", fontSize: 10, margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.07em" }}>Approved</p>
+        </div>
+        <div style={{ background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}>
+          <p style={{ color: "var(--warning)", fontSize: 22, fontWeight: 700, margin: 0 }}>{formatGbp(data.summary.pendingTotal)}</p>
+          <p style={{ color: "var(--muted)", fontSize: 10, margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.07em" }}>Pending</p>
+        </div>
+      </div>
+      <SectionCard title={`Timesheets (${data.timesheets.length})`}>
+        {data.timesheets.length ? data.timesheets.map(timesheet => (
+          <SettingRow key={timesheet.id} label={`${humanizeRole(timesheet.roleType)} at ${timesheet.siteName}`} sublabel={`${timesheet.organisationName} · ${formatDate(timesheet.startAt)} · ${timesheet.hoursWorked}h · ${timesheet.approved ? "approved" : "pending approval"}`}>
+            {formatGbp(timesheet.workerTotal)}
+          </SettingRow>
+        )) : <SettingRow label="No earnings yet" />}
+      </SectionCard>
+    </div>
+  )
+}
 
 export default function WorkerApp() {
   return (
@@ -624,6 +796,9 @@ function WorkerAppInner() {
                   <div>
                     <p style={{ color: "var(--muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 3px" }}>{offer.role}</p>
                     <p style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, margin: "0 0 2px" }}>{offer.site}</p>
+                    {offer.siteAddress && (
+                      <p style={{ color: "var(--muted)", fontSize: 11, margin: "0 0 3px", lineHeight: 1.35 }}>{offer.siteAddress}</p>
+                    )}
                     {offer.shiftDate && (
                       <p style={{ color: "var(--faint)", fontSize: 11, margin: 0 }}>
                         {offer.shiftDate}{offer.shiftStart && ` · ${offer.shiftStart}–${offer.shiftEnd}`}
@@ -650,6 +825,17 @@ function WorkerAppInner() {
                   <div style={{ background: "rgba(31,77,255,0.06)", border: "1px solid rgba(31,77,255,0.18)", borderRadius: 11, padding: "10px 12px", marginBottom: 14 }}>
                     <p style={{ color: "var(--muted)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 3px" }}>Why V chose this</p>
                     <p style={{ color: "#1a3fd0", fontSize: 12, lineHeight: 1.5, margin: 0 }}>{offer.fitReason}</p>
+                    {offer.memoryReasons?.length ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 9 }}>
+                        {offer.memoryReasons.slice(0, 3).map(reason => (
+                          <div key={reason.id} style={{ borderTop: "1px solid rgba(31,77,255,0.12)", paddingTop: 6 }}>
+                            <p style={{ color: "#1a3fd0", fontSize: 11, fontWeight: 650, lineHeight: 1.35, margin: 0 }}>{reason.title}</p>
+                            <p style={{ color: "var(--muted)", fontSize: 10, lineHeight: 1.35, margin: "2px 0 0" }}>{reason.detail}</p>
+                            <p style={{ color: "var(--faint)", fontSize: 9, textTransform: "uppercase", letterSpacing: "0.06em", margin: "3px 0 0" }}>{humanizeRole(reason.kind)} Â· {reason.visibility}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
@@ -671,6 +857,7 @@ function WorkerAppInner() {
               </div>
             )}
           </div>
+          <ShiftHistory workerId={workerId} apiUrl={API_URL} />
         </div>
       )}
 
@@ -687,9 +874,7 @@ function WorkerAppInner() {
       )}
 
       {activeTab === "earnings" && (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>Earnings — coming soon</p>
-        </div>
+        <EarningsTab workerId={workerId} apiUrl={API_URL} />
       )}
     </AppShell>
   )

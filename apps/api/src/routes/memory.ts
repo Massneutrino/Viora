@@ -3,11 +3,13 @@ import { z } from "zod";
 import { Prisma } from "@viora/database";
 import type {
   MemoryConnectorType,
+  MemoryKind,
   MemoryOwnerType,
   MemorySensitivity,
   MemoryUseScope,
   MemoryVisibility,
 } from "@viora/domain";
+import { validateMemoryValue } from "@viora/domain";
 import { writeAuditEvent } from "../audit.js";
 
 const subjectTypeSchema = z.enum([
@@ -99,6 +101,12 @@ const importMemorySchema = z
   })
   .strict();
 
+const consolidationDecisionSchema = z
+  .object({
+    adminId: z.string().min(1).default("admin"),
+  })
+  .strict();
+
 const CONNECTORS: Array<{
   type: MemoryConnectorType;
   name: string;
@@ -171,6 +179,25 @@ function normalizeMemoryInput(
   return { visibility, useScopes, sensitivity, status };
 }
 
+function parseMemoryBody<T extends { kind?: MemoryKind; value?: Record<string, unknown> | null }>(
+  body: T,
+  existingKind?: MemoryKind,
+) {
+  const kind = body.kind ?? existingKind;
+  if (!kind || body.value === undefined || body.value === null) return body;
+  const validation = validateMemoryValue(kind, body.value);
+  if (!validation.ok) {
+    const error = new Error(`Invalid memory value: ${validation.errors.join(" ")}`) as Error & {
+      statusCode?: number;
+      validation?: { path: string[]; message: string }[];
+    };
+    error.statusCode = 400;
+    error.validation = validation.errors.map((message) => ({ path: ["value"], message }));
+    throw error;
+  }
+  return body;
+}
+
 async function assertOwnerExists(app: Parameters<FastifyPluginAsync>[0], ownerType: MemoryOwnerType, ownerId: string) {
   if (ownerType === "organisation") {
     const org = await app.db.organisation.findUnique({ where: { id: ownerId }, select: { id: true } });
@@ -189,11 +216,30 @@ async function listMemories(
   const status = typeof query.status === "string" ? statusSchema.safeParse(query.status) : null;
   const includeDeleted = query.includeDeleted === "true";
   const scope = typeof query.scope === "string" ? useScopeSchema.safeParse(query.scope) : null;
+  const kind = typeof query.kind === "string" ? kindSchema.safeParse(query.kind) : null;
+  const visibility = typeof query.visibility === "string" ? visibilitySchema.safeParse(query.visibility) : null;
+  const sensitivity = typeof query.sensitivity === "string" ? sensitivitySchema.safeParse(query.sensitivity) : null;
+  const connectorType =
+    typeof query.connectorType === "string" ? connectorTypeSchema.safeParse(query.connectorType) : null;
+  const search = typeof query.search === "string" ? query.search.trim().slice(0, 120) : "";
   return app.db.memoryEntry.findMany({
     where: {
       ownerType,
       ownerId,
       ...(scope?.success ? { useScopes: { has: scope.data } } : {}),
+      ...(kind?.success ? { kind: kind.data } : {}),
+      ...(visibility?.success ? { visibility: visibility.data } : {}),
+      ...(sensitivity?.success ? { sensitivity: sensitivity.data } : {}),
+      ...(connectorType?.success ? { connectorType: connectorType.data } : {}),
+      ...(search
+        ? {
+            OR: [
+              { title: { contains: search, mode: "insensitive" } },
+              { content: { contains: search, mode: "insensitive" } },
+              { sourceLabel: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
       ...(status?.success
         ? { status: status.data }
         : includeDeleted
@@ -213,6 +259,7 @@ async function createMemory(
   sourceType: "user_entered" | "connector_import" = "user_entered",
   actorType: "user" | "system" = "user",
 ) {
+  parseMemoryBody(body);
   const actorId = body.actorId ?? ownerId;
   const normalized = normalizeMemoryInput(ownerType, body, sourceType);
   return app.db.$transaction(async (tx) => {
@@ -274,6 +321,7 @@ async function updateMemory(
 ) {
   const existing = await app.db.memoryEntry.findUnique({ where: { id: memoryId } });
   if (!existing || existing.ownerType !== ownerType || existing.ownerId !== ownerId) return null;
+  parseMemoryBody(body, existing.kind as MemoryKind);
   const actorId = body.actorId ?? ownerId;
   const data: Prisma.MemoryEntryUpdateInput = {};
   if (body.title !== undefined) data.title = body.title;
@@ -373,6 +421,315 @@ function routeOwner(params: { ownerType: "organisations" | "workers"; id: string
     ownerType: (params.ownerType === "organisations" ? "organisation" : "worker") as MemoryOwnerType,
     ownerId: params.id,
   };
+}
+
+function slugText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function suggestionKey(action: string, ids: string[]) {
+  return `${action}:${[...ids].sort().join(":")}`;
+}
+
+async function upsertSuggestion(
+  app: Parameters<FastifyPluginAsync>[0],
+  input: {
+    action: string;
+    ownerType: MemoryOwnerType;
+    ownerId: string;
+    subjectType?: z.infer<typeof subjectTypeSchema>;
+    subjectId?: string;
+    affectedMemoryIds?: string[];
+    affectedEdgeIds?: string[];
+    title: string;
+    explanation: string;
+    inputs: Record<string, unknown>;
+  },
+) {
+  const key = suggestionKey(input.action, [...(input.affectedMemoryIds ?? []), ...(input.affectedEdgeIds ?? [])]);
+  const existing = await app.db.memoryReviewSuggestion.findFirst({
+    where: { status: "pending", inputs: { path: ["key"], equals: key } },
+  });
+  const data = {
+    action: input.action,
+    ownerType: input.ownerType,
+    ownerId: input.ownerId,
+    subjectType: input.subjectType,
+    subjectId: input.subjectId,
+    affectedMemoryIds: input.affectedMemoryIds ?? [],
+    affectedEdgeIds: input.affectedEdgeIds ?? [],
+    title: input.title,
+    explanation: input.explanation,
+    inputs: { ...input.inputs, key } as Prisma.InputJsonValue,
+  };
+  if (existing) {
+    return app.db.memoryReviewSuggestion.update({ where: { id: existing.id }, data });
+  }
+  return app.db.memoryReviewSuggestion.create({ data });
+}
+
+function contradictionGroupKey(memory: { ownerType: string; ownerId: string; subjectType: string; subjectId: string; kind: string }) {
+  return `${memory.ownerType}:${memory.ownerId}:${memory.subjectType}:${memory.subjectId}:${memory.kind}`;
+}
+
+async function analyzeMemoryConsolidation(app: Parameters<FastifyPluginAsync>[0]) {
+  const now = new Date();
+  const staleCutoff = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
+  const [activeMemories, influenceEvents, edges, recentEpisodes] = await Promise.all([
+    app.db.memoryEntry.findMany({
+      where: { status: "active" },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 300,
+    }),
+    app.db.auditEvent.findMany({
+      where: { action: "memory.influence", createdAt: { gte: staleCutoff } },
+      orderBy: [{ createdAt: "desc" }],
+      take: 500,
+    }),
+    app.db.memoryEdge.findMany({
+      where: { status: "active" },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 300,
+    }),
+    app.db.memoryEpisode.findMany({
+      where: { occurredAt: { gte: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000) } },
+      orderBy: [{ occurredAt: "desc" }],
+      take: 300,
+    }),
+  ]);
+
+  const usedMemoryIds = new Set<string>();
+  for (const event of influenceEvents) {
+    const inputs = event.inputs as Record<string, unknown>;
+    const ids = Array.isArray(inputs.memoryIds) ? inputs.memoryIds : [];
+    for (const id of ids) if (typeof id === "string") usedMemoryIds.add(id);
+  }
+
+  for (const memory of activeMemories) {
+    const isExpired = memory.expiresAt && memory.expiresAt <= now;
+    const isUnused = !usedMemoryIds.has(memory.id) && memory.updatedAt < staleCutoff && memory.visibility !== "private";
+    if (!isExpired && !isUnused) continue;
+    await upsertSuggestion(app, {
+      action: "archive",
+      ownerType: memory.ownerType,
+      ownerId: memory.ownerId,
+      subjectType: memory.subjectType,
+      subjectId: memory.subjectId,
+      affectedMemoryIds: [memory.id],
+      title: `Archive stale memory: ${memory.title}`,
+      explanation: isExpired
+        ? "This active memory is past its expiry date and should be archived unless it is still valid."
+        : "This active memory has not influenced recent actions and is old enough to review for archive.",
+      inputs: { reason: isExpired ? "expired" : "unused_active", staleCutoff: staleCutoff.toISOString() },
+    });
+  }
+
+  const byDuplicateKey = new Map<string, typeof activeMemories>();
+  for (const memory of activeMemories) {
+    const key = `${contradictionGroupKey(memory)}:${slugText(memory.key || memory.title).slice(0, 48)}`;
+    byDuplicateKey.set(key, [...(byDuplicateKey.get(key) ?? []), memory]);
+  }
+  for (const group of byDuplicateKey.values()) {
+    if (group.length < 2) continue;
+    const first = group[0];
+    if (!first) continue;
+    await upsertSuggestion(app, {
+      action: "merge",
+      ownerType: first.ownerType,
+      ownerId: first.ownerId,
+      subjectType: first.subjectType,
+      subjectId: first.subjectId,
+      affectedMemoryIds: group.map((memory) => memory.id),
+      title: `Merge duplicate memories: ${first.title}`,
+      explanation: "These active memories share the same owner, subject, kind and key/title shape. Keep the strongest row and archive the duplicates.",
+      inputs: { reason: "duplicate_key", memoryIds: group.map((memory) => memory.id) },
+    });
+  }
+
+  const contradictionKinds = new Set<MemoryKind>(["availability_signal", "pay_signal", "instruction", "preference", "fit_signal"]);
+  const byContradictionKey = new Map<string, typeof activeMemories>();
+  for (const memory of activeMemories) {
+    if (!contradictionKinds.has(memory.kind as MemoryKind)) continue;
+    const key = contradictionGroupKey(memory);
+    byContradictionKey.set(key, [...(byContradictionKey.get(key) ?? []), memory]);
+  }
+  for (const group of byContradictionKey.values()) {
+    const normalized = new Set(group.map((memory) => slugText(`${memory.title} ${memory.content}`).slice(0, 120)));
+    if (group.length < 2 || normalized.size < 2) continue;
+    const first = group[0];
+    if (!first) continue;
+    await upsertSuggestion(app, {
+      action: "needs_human_review",
+      ownerType: first.ownerType,
+      ownerId: first.ownerId,
+      subjectType: first.subjectType,
+      subjectId: first.subjectId,
+      affectedMemoryIds: group.map((memory) => memory.id),
+      title: `Review conflicting ${first.kind} memories`,
+      explanation: "Multiple active memories for the same owner, subject and kind appear to disagree. A human should confirm which one V can rely on.",
+      inputs: { reason: "possible_contradiction", memoryIds: group.map((memory) => memory.id) },
+    });
+  }
+
+  for (const edge of edges) {
+    const oldEvidence = edge.lastEvidenceAt && edge.lastEvidenceAt < staleCutoff && edge.evidenceCount <= 1;
+    const nearZero = Math.abs(edge.weight) < 0.08 && edge.confidence < 0.55;
+    if (!oldEvidence && !nearZero) continue;
+    await upsertSuggestion(app, {
+      action: "supersede",
+      ownerType: edge.ownerType,
+      ownerId: edge.ownerId,
+      subjectType: edge.toType,
+      subjectId: edge.toId,
+      affectedEdgeIds: [edge.id],
+      title: `Archive weak edge: ${edge.label}`,
+      explanation: "This active graph edge is old or weak enough to review for archive so it stops shaping temporal fit scoring.",
+      inputs: { reason: oldEvidence ? "old_low_evidence_edge" : "weak_low_confidence_edge", edgeId: edge.id },
+    });
+  }
+
+  const episodeGroups = new Map<string, typeof recentEpisodes>();
+  for (const episode of recentEpisodes) {
+    if (!episode.affectedEdgeIds.length) continue;
+    const key = `${episode.ownerType}:${episode.ownerId}:${episode.subjectType}:${episode.subjectId}:${episode.kind}:${episode.outcome}`;
+    episodeGroups.set(key, [...(episodeGroups.get(key) ?? []), episode]);
+  }
+  for (const group of episodeGroups.values()) {
+    if (group.length < 3) continue;
+    const first = group[0];
+    if (!first) continue;
+    await upsertSuggestion(app, {
+      action: "confirm_pattern",
+      ownerType: first.ownerType,
+      ownerId: first.ownerId,
+      subjectType: first.subjectType,
+      subjectId: first.subjectId,
+      affectedEdgeIds: [...new Set(group.flatMap((episode) => episode.affectedEdgeIds))],
+      title: `Confirm repeated pattern: ${first.label}`,
+      explanation: "Repeated episodes suggest a durable memory candidate. Confirmation creates a pending memory rather than silently changing ranking.",
+      inputs: {
+        reason: "repeated_episode_pattern",
+        episodeIds: group.map((episode) => episode.id),
+        count: group.length,
+      },
+    });
+  }
+
+  return app.db.memoryReviewSuggestion.findMany({
+    where: { status: "pending" },
+    orderBy: [{ createdAt: "desc" }],
+    take: 100,
+  });
+}
+
+async function resolveSuggestion(
+  app: Parameters<FastifyPluginAsync>[0],
+  suggestionId: string,
+  adminId: string,
+  decision: "applied" | "rejected",
+) {
+  const suggestion = await app.db.memoryReviewSuggestion.findUnique({ where: { id: suggestionId } });
+  if (!suggestion || suggestion.status !== "pending") return null;
+  if (decision === "rejected") {
+    return app.db.$transaction(async (tx) => {
+      const resolved = await tx.memoryReviewSuggestion.update({
+        where: { id: suggestionId },
+        data: { status: "rejected", resolvedAt: new Date(), resolvedBy: adminId, outputs: { decision } },
+      });
+      await writeAuditEvent(tx, {
+        actorType: "admin",
+        actorId: adminId,
+        action: "memory.consolidation.reject",
+        entityType: "MemoryReviewSuggestion",
+        entityId: suggestionId,
+        inputs: suggestion.inputs as Prisma.InputJsonValue,
+        outputs: { action: suggestion.action, affectedMemoryIds: suggestion.affectedMemoryIds, affectedEdgeIds: suggestion.affectedEdgeIds } as Prisma.InputJsonValue,
+        outcome: "rejected",
+      });
+      return resolved;
+    });
+  }
+
+  return app.db.$transaction(async (tx) => {
+    const outputs: Record<string, unknown> = { decision, action: suggestion.action };
+    if (suggestion.action === "archive" || suggestion.action === "supersede") {
+      if (suggestion.affectedMemoryIds.length) {
+        const archived = await tx.memoryEntry.updateMany({
+          where: { id: { in: suggestion.affectedMemoryIds }, status: "active" },
+          data: { status: "archived" },
+        });
+        outputs.archivedMemories = archived.count;
+      }
+      if (suggestion.affectedEdgeIds.length) {
+        const archived = await tx.memoryEdge.updateMany({
+          where: { id: { in: suggestion.affectedEdgeIds }, status: "active" },
+          data: { status: "archived", validUntil: new Date() },
+        });
+        outputs.archivedEdges = archived.count;
+      }
+    } else if (suggestion.action === "merge") {
+      const memories = await tx.memoryEntry.findMany({
+        where: { id: { in: suggestion.affectedMemoryIds } },
+        orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
+      });
+      const keeper = memories[0];
+      const duplicates = memories.slice(1);
+      if (keeper && duplicates.length) {
+        await tx.memoryEntry.update({
+          where: { id: keeper.id },
+          data: {
+            content: `${keeper.content}\n\nMerged notes: ${duplicates.map((memory) => memory.content).join(" ")}`.slice(0, 2000),
+            confidence: Math.max(keeper.confidence, ...duplicates.map((memory) => memory.confidence)),
+          },
+        });
+        const archived = await tx.memoryEntry.updateMany({
+          where: { id: { in: duplicates.map((memory) => memory.id) } },
+          data: { status: "archived" },
+        });
+        outputs.keptMemoryId = keeper.id;
+        outputs.archivedMemories = archived.count;
+      }
+    } else if (suggestion.action === "confirm_pattern") {
+      const memory = await tx.memoryEntry.create({
+        data: {
+          ownerType: suggestion.ownerType,
+          ownerId: suggestion.ownerId,
+          subjectType: suggestion.subjectType ?? (suggestion.ownerType === "organisation" ? "organisation" : "worker"),
+          subjectId: suggestion.subjectId ?? suggestion.ownerId,
+          kind: "fit_signal",
+          key: keyFromTitle("fit_signal", suggestion.title),
+          title: suggestion.title,
+          content: suggestion.explanation,
+          sourceType: "system_event",
+          sourceRefType: "MemoryReviewSuggestion",
+          sourceRefId: suggestion.id,
+          visibility: "operational",
+          status: "pending_confirmation",
+          useScopes: suggestion.ownerType === "organisation" ? ORG_SCOPES : WORKER_OPERATIONAL_SCOPES,
+          sensitivity: "standard",
+          sourceLabel: "Memory consolidation",
+          confidence: 0.72,
+        },
+      });
+      outputs.createdMemoryId = memory.id;
+    }
+
+    const resolved = await tx.memoryReviewSuggestion.update({
+      where: { id: suggestionId },
+      data: { status: "applied", resolvedAt: new Date(), resolvedBy: adminId, outputs: outputs as Prisma.InputJsonValue },
+    });
+    await writeAuditEvent(tx, {
+      actorType: "admin",
+      actorId: adminId,
+      action: "memory.consolidation.apply",
+      entityType: "MemoryReviewSuggestion",
+      entityId: suggestionId,
+      inputs: suggestion.inputs as Prisma.InputJsonValue,
+      outputs: outputs as Prisma.InputJsonValue,
+      outcome: "applied",
+    });
+    return resolved;
+  });
 }
 
 export const memoryRoutes: FastifyPluginAsync = async (app) => {
@@ -493,6 +850,59 @@ export const memoryRoutes: FastifyPluginAsync = async (app) => {
       take: 100,
     });
     return { memories };
+  });
+
+  app.get("/admin/memory/evidence", async () => {
+    const [episodes, edges, influence] = await Promise.all([
+      app.db.memoryEpisode.findMany({
+        orderBy: [{ occurredAt: "desc" }],
+        take: 40,
+      }),
+      app.db.memoryEdge.findMany({
+        where: { status: { in: ["active", "archived"] } },
+        orderBy: [{ lastEvidenceAt: "desc" }, { updatedAt: "desc" }],
+        take: 40,
+      }),
+      app.db.auditEvent.findMany({
+        where: { action: "memory.influence" },
+        orderBy: [{ createdAt: "desc" }],
+        take: 30,
+      }),
+    ]);
+    return {
+      episodes,
+      edges,
+      influence: influence.map((event) => ({
+        id: event.id,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        outcome: event.outcome,
+        createdAt: event.createdAt,
+        inputs: event.inputs,
+        outputs: event.outputs,
+      })),
+    };
+  });
+
+  app.get("/admin/memory/consolidation", async () => {
+    const suggestions = await analyzeMemoryConsolidation(app);
+    return { suggestions };
+  });
+
+  app.post("/admin/memory/consolidation/:id/apply", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = consolidationDecisionSchema.parse(request.body ?? {});
+    const suggestion = await resolveSuggestion(app, id, body.adminId, "applied");
+    if (!suggestion) return reply.code(404).send({ error: "Pending memory suggestion not found." });
+    return { suggestion };
+  });
+
+  app.post("/admin/memory/consolidation/:id/reject", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = consolidationDecisionSchema.parse(request.body ?? {});
+    const suggestion = await resolveSuggestion(app, id, body.adminId, "rejected");
+    if (!suggestion) return reply.code(404).send({ error: "Pending memory suggestion not found." });
+    return { suggestion };
   });
 
   app.patch("/admin/memory/:memoryId", async (request, reply) => {

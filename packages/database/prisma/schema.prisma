@@ -211,6 +211,8 @@ model Site {
   organisation     Organisation     @relation(fields: [organisationId], references: [id])
   name             String
   address          String
+  city             String?
+  postcode         String?
   latitude         Float?
   longitude        Float?
   siteInstructions String?
@@ -241,6 +243,9 @@ model Worker {
   lastName       String
   email          String    @unique
   phone          String?
+  homeAddress    String?
+  homeCity       String?
+  homePostcode   String?
   homeLatitude   Float?
   homeLongitude  Float?
   workRadiusKm   Float?
@@ -360,6 +365,12 @@ model MemoryEdge {
   sourceRefId   String?
   visibility    MemoryVisibility  @default(operational)
   status        MemoryStatus      @default(active)
+  validFrom     DateTime          @default(now())
+  validUntil    DateTime?
+  lastEvidenceAt DateTime?
+  decayPolicy   String            @default("none")
+  supersededByEdgeId String?
+  evidenceRefs  Json?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
@@ -368,6 +379,58 @@ model MemoryEdge {
   @@index([fromType, fromId])
   @@index([toType, toId])
   @@index([kind])
+  @@index([lastEvidenceAt])
+  @@index([supersededByEdgeId])
+}
+
+model MemoryEpisode {
+  id                String            @id @default(cuid())
+  ownerType         MemoryOwnerType
+  ownerId           String
+  subjectType       MemorySubjectType
+  subjectId         String
+  kind              MemoryKind
+  label             String
+  sourceType        MemorySourceType
+  sourceRefType     String?
+  sourceRefId       String?
+  entityType        String?
+  entityId          String?
+  purpose           MemoryUseScope?
+  audience          String?
+  outcome           String
+  occurredAt        DateTime          @default(now())
+  affectedMemoryIds String[]
+  affectedEdgeIds   String[]
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+
+  @@index([ownerType, ownerId, occurredAt])
+  @@index([subjectType, subjectId, occurredAt])
+  @@index([sourceRefType, sourceRefId])
+  @@index([entityType, entityId])
+}
+
+model MemoryReviewSuggestion {
+  id                String   @id @default(cuid())
+  action            String
+  status            String   @default("pending")
+  ownerType         MemoryOwnerType
+  ownerId           String
+  subjectType       MemorySubjectType?
+  subjectId         String?
+  affectedMemoryIds String[]
+  affectedEdgeIds   String[]
+  title             String
+  explanation       String
+  inputs            Json
+  outputs           Json?
+  createdAt         DateTime @default(now())
+  resolvedAt        DateTime?
+  resolvedBy        String?
+
+  @@index([status, createdAt])
+  @@index([ownerType, ownerId, status])
 }
 
 model BookingRequest {
