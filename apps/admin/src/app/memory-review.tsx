@@ -92,6 +92,8 @@ function time(value: string): string {
 
 function actionLabel(action: string): string {
   if (action === "propose_playbook") return "Procedural playbook";
+  if (action === "propose_briefing_note") return "Briefing learning";
+  if (action === "propose_fit_feedback") return "Fit feedback";
   return action.replace(/_/g, " ");
 }
 

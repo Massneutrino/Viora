@@ -326,6 +326,7 @@ async function cleanup(prisma) {
       ],
     },
   });
+  await prisma.feedback.deleteMany({ where: { shift: { booking: { id: { startsWith: runId } } } } });
   await prisma.shift.deleteMany({ where: { booking: { id: { startsWith: runId } } } });
   await prisma.booking.deleteMany({ where: { id: { startsWith: runId } } });
   await prisma.offer.deleteMany({ where: { bookingRequestId: { startsWith: runId } } });
@@ -1360,6 +1361,168 @@ async function runProceduralLearningEvals(app, prisma, refs) {
   log("reviewed procedural intake playbooks");
 }
 
+async function createCompletedFeedbackShift(prisma, refs, suffix) {
+  const bookingRequestId = id(`feedback-booking-request-${suffix}`);
+  const offerId = id(`feedback-offer-${suffix}`);
+  const bookingId = id(`feedback-booking-${suffix}`);
+  const shiftId = id(`feedback-shift-${suffix}`);
+  await prisma.bookingRequest.create({
+    data: {
+      id: bookingRequestId,
+      organisationId: refs.organisation,
+      siteId: refs.site,
+      status: "filled",
+      roleType,
+      startAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      endAt: new Date(Date.now() - 41 * 60 * 60 * 1000),
+      rateMode: "standard",
+      payRate: 150,
+      rawIntent: `Feedback eval booking ${suffix}`,
+      channel: "web",
+      broadcastStrategy: "simultaneous_top_n",
+    },
+  });
+  await prisma.offer.create({
+    data: {
+      id: offerId,
+      bookingRequestId,
+      workerId: refs.workers.eligible_preferred,
+      status: "accepted",
+      payRate: 150,
+      fitExplanation: "Feedback eval accepted offer.",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  await prisma.booking.create({
+    data: {
+      id: bookingId,
+      bookingRequestId,
+      organisationId: refs.organisation,
+      siteId: refs.site,
+      workerId: refs.workers.eligible_preferred,
+      offerId,
+      status: "completed",
+      roleType,
+      startAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      endAt: new Date(Date.now() - 41 * 60 * 60 * 1000),
+      payRate: 150,
+      vioraFee: 30,
+      totalCost: 180,
+      backupWorkerIds: [],
+      complianceSnapshot: { eval: true },
+    },
+  });
+  await prisma.shift.create({
+    data: {
+      id: shiftId,
+      bookingId,
+      status: "checked_out",
+      checkedInAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+      checkedOutAt: new Date(Date.now() - 41 * 60 * 60 * 1000),
+    },
+  });
+  return shiftId;
+}
+
+async function postJson(app, url, payload) {
+  const res = await app.inject({ method: "POST", url, payload });
+  assert(res.statusCode >= 200 && res.statusCode < 300, `${url} failed (${res.statusCode}): ${res.body}`);
+  return JSON.parse(res.body);
+}
+
+async function runPostShiftLearningEvals(app, prisma, refs) {
+  const shiftA = await createCompletedFeedbackShift(prisma, refs, "a");
+  const shiftB = await createCompletedFeedbackShift(prisma, refs, "b");
+  const shiftC = await createCompletedFeedbackShift(prisma, refs, "c");
+  const shiftContested = await createCompletedFeedbackShift(prisma, refs, "contested");
+
+  const workerCommentA = "The briefing should mention the reception gate code and behaviour plan before arrival.";
+  const workerCommentB = "Future workers need a briefing note about the reception gate and lesson plan pickup.";
+
+  await postJson(app, `/v1/organisations/${refs.organisation}/shifts/${shiftA}/feedback`, {
+    rating: 5,
+    comment: "Excellent fit for this site and role.",
+  });
+  await postJson(app, `/v1/organisations/${refs.organisation}/shifts/${shiftB}/feedback`, {
+    rating: 4,
+    comment: "Strong repeat fit; pupils responded well.",
+  });
+  await postJson(app, `/v1/workers/${refs.workers.eligible_preferred}/shifts/${shiftA}/feedback`, {
+    rating: 4,
+    comment: workerCommentA,
+  });
+  await postJson(app, `/v1/workers/${refs.workers.eligible_preferred}/shifts/${shiftB}/feedback`, {
+    rating: 4,
+    comment: workerCommentB,
+  });
+  await postJson(app, `/v1/organisations/${refs.organisation}/shifts/${shiftContested}/feedback`, {
+    rating: 5,
+    comment: "This should not become learning evidence.",
+    contested: true,
+  });
+  await postJson(app, `/v1/workers/${refs.workers.eligible_preferred}/shifts/${shiftC}/feedback`, {
+    rating: 2,
+    comment: "This comment is too generic to become a briefing note.",
+  });
+
+  const feedbackRows = await prisma.feedback.findMany({
+    where: { shiftId: { in: [shiftA, shiftB, shiftC, shiftContested] } },
+  });
+  assert(feedbackRows.length === 6, "Feedback endpoints did not create expected rows.");
+  const feedbackEpisodes = await prisma.memoryEpisode.findMany({
+    where: { sourceRefType: "Feedback", sourceRefId: { in: feedbackRows.map((feedback) => feedback.id) } },
+  });
+  assert(feedbackEpisodes.length >= 6, "Feedback learning did not create memory episodes.");
+
+  const consolidation = await injectJson(app, "/v1/admin/memory/consolidation");
+  const suggestions = consolidation.suggestions ?? [];
+  const fitSuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_fit_feedback" &&
+      suggestion.ownerId === refs.workers.eligible_preferred &&
+      suggestion.subjectId === refs.site,
+  );
+  const briefingSuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_briefing_note" &&
+      suggestion.ownerId === refs.organisation &&
+      suggestion.subjectId === refs.site,
+  );
+  assert(fitSuggestion, "Post-shift learning did not suggest fit feedback review.");
+  assert(briefingSuggestion, "Post-shift learning did not suggest briefing note review.");
+
+  await postJson(app, `/v1/admin/memory/consolidation/${fitSuggestion.id}/apply`, { adminId: "memory-eval" });
+  await postJson(app, `/v1/admin/memory/consolidation/${briefingSuggestion.id}/apply`, { adminId: "memory-eval" });
+
+  const fitMemory = await prisma.memoryEntry.findFirst({
+    where: { sourceRefType: "MemoryReviewSuggestion", sourceRefId: fitSuggestion.id },
+  });
+  assert(fitMemory?.status === "pending_confirmation", "Fit feedback apply did not create pending-confirmation memory.");
+  assert(fitMemory.useScopes.includes("ranking_signal"), "Fit feedback memory is missing ranking scope.");
+  assert(fitMemory.value?.valueType === "role_confidence", "Fit feedback memory did not use role_confidence value.");
+
+  const briefingMemory = await prisma.memoryEntry.findFirst({
+    where: { sourceRefType: "MemoryReviewSuggestion", sourceRefId: briefingSuggestion.id },
+  });
+  assert(briefingMemory?.status === "active", "Briefing feedback apply did not create active memory.");
+  assert(briefingMemory.useScopes.includes("briefing"), "Briefing feedback memory is missing briefing scope.");
+  assert(!briefingMemory.useScopes.includes("ranking_signal"), "Briefing feedback memory unexpectedly has ranking scope.");
+  assert(briefingMemory.value?.valueType === "briefing_note", "Briefing feedback memory did not use briefing_note value.");
+
+  const contestedSuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_fit_feedback" &&
+      suggestion.inputs?.comments?.some((comment) => String(comment).includes("should not become")),
+  );
+  assert(!contestedSuggestion, "Contested feedback created a post-shift learning suggestion.");
+
+  const audit = await prisma.auditEvent.findMany({
+    where: { action: { in: ["shift.feedback", "memory.feedback.learn"] }, entityId: { in: feedbackRows.map((feedback) => feedback.id) } },
+  });
+  assert(audit.length >= 12, "Feedback endpoints and memory learning did not write audit rows.");
+  log("post-shift feedback learning suggestions");
+}
+
 async function runOptionalExtractionEvals(app, refs) {
   if (!RUN_LLM_EXTRACTION) {
     log("extraction fixture shape validated (set MEMORY_EVAL_RUN_LLM=1 for live LLM extraction)");
@@ -1423,6 +1586,7 @@ try {
   await runOfferExplanationEvals(app, prisma, refs);
   await runConsolidationEvals(app, prisma, refs);
   await runProceduralLearningEvals(app, prisma, refs);
+  await runPostShiftLearningEvals(app, prisma, refs);
   await runAnalyticsEvals(app, prisma, refs);
   await runOptionalExtractionEvals(app, refs);
 

@@ -36,6 +36,15 @@ const prisma = new PrismaClient();
 let app = null;
 let proceduralSuggestionId = null;
 let proceduralMemoryId = null;
+const feedbackArtifacts = {
+  suggestionIds: [],
+  memoryIds: [],
+  feedbackIds: [],
+  shiftIds: [],
+  bookingIds: [],
+  offerIds: [],
+  bookingRequestIds: [],
+};
 
 function log(message) {
   console.log(`✓ ${message}`);
@@ -129,6 +138,75 @@ async function patchMemory(path, payload) {
 async function deleteMemory(path) {
   const result = await request(path, { method: "DELETE" });
   return result.memory;
+}
+
+async function createCompletedFeedbackShift(suffix) {
+  const bookingRequestId = `${runId}_feedback_request_${suffix}`;
+  const offerId = `${runId}_feedback_offer_${suffix}`;
+  const bookingId = `${runId}_feedback_booking_${suffix}`;
+  const shiftId = `${runId}_feedback_shift_${suffix}`;
+  const startAt = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const endAt = new Date(Date.now() - 41 * 60 * 60 * 1000);
+  await prisma.bookingRequest.create({
+    data: {
+      id: bookingRequestId,
+      organisationId: ORG_ID,
+      siteId: "demo-site",
+      status: "filled",
+      roleType: `smoke_feedback_role_${runId}`,
+      startAt,
+      endAt,
+      rateMode: "standard",
+      payRate: 150,
+      rawIntent: `Feedback smoke ${suffix}`,
+      channel: "web",
+      broadcastStrategy: "simultaneous_top_n",
+    },
+  });
+  await prisma.offer.create({
+    data: {
+      id: offerId,
+      bookingRequestId,
+      workerId: WORKER_ID,
+      status: "accepted",
+      payRate: 150,
+      fitExplanation: "Feedback smoke offer.",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  await prisma.booking.create({
+    data: {
+      id: bookingId,
+      bookingRequestId,
+      organisationId: ORG_ID,
+      siteId: "demo-site",
+      workerId: WORKER_ID,
+      offerId,
+      status: "completed",
+      roleType: `smoke_feedback_role_${runId}`,
+      startAt,
+      endAt,
+      payRate: 150,
+      vioraFee: 30,
+      totalCost: 180,
+      backupWorkerIds: [],
+      complianceSnapshot: { smoke: true },
+    },
+  });
+  await prisma.shift.create({
+    data: {
+      id: shiftId,
+      bookingId,
+      status: "checked_out",
+      checkedInAt: startAt,
+      checkedOutAt: endAt,
+    },
+  });
+  feedbackArtifacts.bookingRequestIds.push(bookingRequestId);
+  feedbackArtifacts.offerIds.push(offerId);
+  feedbackArtifacts.bookingIds.push(bookingId);
+  feedbackArtifacts.shiftIds.push(shiftId);
+  return shiftId;
 }
 
 try {
@@ -357,6 +435,62 @@ try {
   proceduralMemoryId = proceduralMemory.id;
   log("reviewed procedural learning verified");
 
+  const feedbackShiftA = await createCompletedFeedbackShift("a");
+  const feedbackShiftB = await createCompletedFeedbackShift("b");
+  const employerFeedbackA = await request(`/v1/organisations/${ORG_ID}/shifts/${feedbackShiftA}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating: 5, comment: "Excellent repeat fit for this site." }),
+  });
+  const employerFeedbackB = await request(`/v1/organisations/${ORG_ID}/shifts/${feedbackShiftB}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating: 4, comment: "Strong fit and calm classroom presence." }),
+  });
+  const workerFeedbackA = await request(`/v1/workers/${WORKER_ID}/shifts/${feedbackShiftA}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating: 4, comment: "The briefing should mention the reception gate and lesson plan pickup." }),
+  });
+  const workerFeedbackB = await request(`/v1/workers/${WORKER_ID}/shifts/${feedbackShiftB}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating: 4, comment: "Future briefing notes should include the reception gate and behaviour plan." }),
+  });
+  feedbackArtifacts.feedbackIds.push(
+    employerFeedbackA.feedback.id,
+    employerFeedbackB.feedback.id,
+    workerFeedbackA.feedback.id,
+    workerFeedbackB.feedback.id,
+  );
+  const postShift = await request("/v1/admin/memory/consolidation");
+  const fitSuggestion = postShift.suggestions.find(
+    (suggestion) => suggestion.action === "propose_fit_feedback" && suggestion.ownerId === WORKER_ID,
+  );
+  const briefingSuggestion = postShift.suggestions.find(
+    (suggestion) => suggestion.action === "propose_briefing_note" && suggestion.ownerId === ORG_ID,
+  );
+  assert(fitSuggestion, "Post-shift learning did not suggest fit feedback review.");
+  assert(briefingSuggestion, "Post-shift learning did not suggest briefing note review.");
+  feedbackArtifacts.suggestionIds.push(fitSuggestion.id, briefingSuggestion.id);
+  await request(`/v1/admin/memory/consolidation/${fitSuggestion.id}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ adminId: "smoke-test" }),
+  });
+  await request(`/v1/admin/memory/consolidation/${briefingSuggestion.id}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ adminId: "smoke-test" }),
+  });
+  const postShiftMemories = await prisma.memoryEntry.findMany({
+    where: { sourceRefType: "MemoryReviewSuggestion", sourceRefId: { in: [fitSuggestion.id, briefingSuggestion.id] } },
+  });
+  feedbackArtifacts.memoryIds.push(...postShiftMemories.map((memory) => memory.id));
+  assert(
+    postShiftMemories.some((memory) => memory.kind === "fit_signal" && memory.status === "pending_confirmation"),
+    "Post-shift fit feedback did not create pending-confirmation memory.",
+  );
+  assert(
+    postShiftMemories.some((memory) => memory.kind === "briefing_note" && memory.status === "active"),
+    "Post-shift briefing feedback did not create active briefing memory.",
+  );
+  log("post-shift feedback learning verified");
+
   const offer = await request(`/v1/workers/${WORKER_ID}/offer`);
   if (offer.offer?.id === OFFER_ID) {
     await request(`/v1/workers/${WORKER_ID}/offers/${OFFER_ID}/decline`, { method: "POST" });
@@ -472,6 +606,41 @@ try {
   });
   if (proceduralMemoryId) await prisma.memoryEntry.deleteMany({ where: { id: proceduralMemoryId } });
   if (proceduralSuggestionId) await prisma.memoryReviewSuggestion.deleteMany({ where: { id: proceduralSuggestionId } });
+  if (feedbackArtifacts.memoryIds.length) {
+    await prisma.memoryEntry.deleteMany({ where: { id: { in: feedbackArtifacts.memoryIds } } });
+  }
+  if (feedbackArtifacts.suggestionIds.length) {
+    await prisma.memoryReviewSuggestion.deleteMany({ where: { id: { in: feedbackArtifacts.suggestionIds } } });
+  }
+  if (feedbackArtifacts.feedbackIds.length) {
+    await prisma.memoryEpisode.deleteMany({
+      where: { sourceRefType: "Feedback", sourceRefId: { in: feedbackArtifacts.feedbackIds } },
+    });
+    await prisma.memoryEdge.deleteMany({
+      where: { sourceRefType: "Feedback", sourceRefId: { in: feedbackArtifacts.feedbackIds } },
+    });
+    await prisma.auditEvent.deleteMany({
+      where: {
+        OR: [
+          { entityType: "Feedback", entityId: { in: feedbackArtifacts.feedbackIds } },
+          { entityId: { in: feedbackArtifacts.suggestionIds } },
+        ],
+      },
+    });
+    await prisma.feedback.deleteMany({ where: { id: { in: feedbackArtifacts.feedbackIds } } });
+  }
+  if (feedbackArtifacts.shiftIds.length) {
+    await prisma.shift.deleteMany({ where: { id: { in: feedbackArtifacts.shiftIds } } });
+  }
+  if (feedbackArtifacts.bookingIds.length) {
+    await prisma.booking.deleteMany({ where: { id: { in: feedbackArtifacts.bookingIds } } });
+  }
+  if (feedbackArtifacts.offerIds.length) {
+    await prisma.offer.deleteMany({ where: { id: { in: feedbackArtifacts.offerIds } } });
+  }
+  if (feedbackArtifacts.bookingRequestIds.length) {
+    await prisma.bookingRequest.deleteMany({ where: { id: { in: feedbackArtifacts.bookingRequestIds } } });
+  }
   await prisma.memoryEntry.deleteMany({ where: { id: consolidationMemoryId } });
   log("memory cleanup completed");
 

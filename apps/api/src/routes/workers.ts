@@ -58,6 +58,16 @@ const shiftLocationSchema = z.object({
   longitude: z.number().optional(),
 });
 
+const shiftFeedbackSchema = z
+  .object({
+    rating: z.number().int().min(1).max(5).optional(),
+    comment: z.string().min(1).max(2000).optional(),
+    contested: z.boolean().default(false),
+  })
+  .refine((body) => body.rating !== undefined || body.comment !== undefined, {
+    message: "rating or comment is required.",
+  });
+
 // Account hub: profile fields live on Worker; payFloor/commute live on the
 // worker's GuardrailPolicy. A single PATCH updates both.
 const workerProfileSchema = z
@@ -794,5 +804,55 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       .catch((err) => request.log.warn({ err }, "memory edge update failed after check-out"));
 
     return reply.send({ shift, timesheet });
+  });
+
+  app.post("/:id/shifts/:shiftId/feedback", async (request, reply) => {
+    const { id: workerId, shiftId } = request.params as { id: string; shiftId: string };
+    const body = shiftFeedbackSchema.parse(request.body ?? {});
+
+    const existing = await app.db.shift.findUnique({
+      where: { id: shiftId },
+      include: { booking: true },
+    });
+    if (!existing) return reply.code(404).send({ error: "Shift not found." });
+    if (existing.booking.workerId !== workerId) return reply.code(403).send({ error: "Forbidden." });
+    if (!["checked_out", "completed"].includes(existing.status)) {
+      return reply.code(409).send({ error: `Cannot leave feedback from status ${existing.status}.` });
+    }
+
+    const duplicate = await app.db.feedback.findFirst({
+      where: { shiftId, fromType: "worker", fromId: workerId },
+      select: { id: true },
+    });
+    if (duplicate) return reply.code(409).send({ error: "Feedback already submitted for this shift." });
+
+    const feedback = await app.db.$transaction(async (tx) => {
+      const row = await tx.feedback.create({
+        data: {
+          shiftId,
+          fromType: "worker",
+          fromId: workerId,
+          rating: body.rating,
+          comment: body.comment,
+          contested: body.contested,
+        },
+      });
+      await writeAuditEvent(tx, {
+        actorType: "user",
+        actorId: workerId,
+        action: "shift.feedback",
+        entityType: "Feedback",
+        entityId: row.id,
+        inputs: { workerId, shiftId, rating: body.rating ?? null, contested: body.contested } as Prisma.InputJsonValue,
+        outputs: { feedbackId: row.id, fromType: row.fromType } as Prisma.InputJsonValue,
+        outcome: body.contested ? "contested" : "submitted",
+      });
+      return row;
+    });
+
+    await app.agents.memory.recordFeedbackEvent(feedback.id)
+      .catch((err) => request.log.warn({ err }, "memory feedback learning failed after worker feedback"));
+
+    return reply.code(201).send({ feedback });
   });
 };

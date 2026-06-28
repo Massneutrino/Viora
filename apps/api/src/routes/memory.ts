@@ -451,6 +451,21 @@ function proceduralPlaybookKey(input: {
   ].join(":");
 }
 
+function postShiftLearningKey(action: string, input: {
+  ownerId: string;
+  siteId?: string;
+  workerId?: string;
+  roleType?: string;
+}) {
+  return [
+    action,
+    input.ownerId,
+    input.siteId ?? "any_site",
+    input.workerId ?? "any_worker",
+    input.roleType ?? "any_role",
+  ].join(":");
+}
+
 function suggestionKey(action: string, ids: string[]) {
   return `${action}:${[...ids].sort().join(":")}`;
 }
@@ -726,6 +741,123 @@ async function analyzeMemoryConsolidation(app: Parameters<FastifyPluginAsync>[0]
     });
   }
 
+  const fitFeedbackGroups = new Map<
+    string,
+    Array<{
+      episodeId: string;
+      edgeIds: string[];
+      workerId: string;
+      organisationId: string;
+      siteId: string;
+      roleType?: string;
+      rating: number;
+      comment?: string;
+    }>
+  >();
+  const briefingFeedbackGroups = new Map<
+    string,
+    Array<{
+      episodeId: string;
+      edgeIds: string[];
+      organisationId: string;
+      siteId: string;
+      workerId: string;
+      roleType?: string;
+      rating: number | null;
+      comment: string;
+    }>
+  >();
+  for (const episode of recentEpisodes) {
+    if (episode.sourceRefType !== "Feedback") continue;
+    const metadata = jsonRecord(episode.metadata);
+    if (metadata.contested === true) continue;
+    const siteId = typeof metadata.siteId === "string" ? metadata.siteId : episode.subjectId;
+    const roleType = typeof metadata.roleType === "string" ? metadata.roleType : undefined;
+    const workerId = typeof metadata.workerId === "string" ? metadata.workerId : undefined;
+    const organisationId = typeof metadata.organisationId === "string" ? metadata.organisationId : undefined;
+    const rating = typeof metadata.rating === "number" ? metadata.rating : null;
+    const comment = typeof metadata.comment === "string" ? metadata.comment.trim() : "";
+    const feedbackFromType = typeof metadata.feedbackFromType === "string" ? metadata.feedbackFromType : "";
+
+    if (feedbackFromType === "organisation" && episode.ownerType === "worker" && workerId && organisationId && rating !== null && rating >= 4) {
+      const key = postShiftLearningKey("propose_fit_feedback", { ownerId: workerId, siteId, workerId, roleType });
+      fitFeedbackGroups.set(key, [
+        ...(fitFeedbackGroups.get(key) ?? []),
+        { episodeId: episode.id, edgeIds: episode.affectedEdgeIds, workerId, organisationId, siteId, roleType, rating, comment },
+      ]);
+    }
+
+    if (feedbackFromType === "worker" && episode.ownerType === "organisation" && workerId && organisationId && comment.length >= 12) {
+      const briefingTerms = /\b(brief|briefing|prepare|prepared|lesson|plan|behaviour|behavior|access|arrival|parking|reception|gate|sen|send)\b/i;
+      if (!briefingTerms.test(comment)) continue;
+      const key = postShiftLearningKey("propose_briefing_note", { ownerId: organisationId, siteId, roleType });
+      briefingFeedbackGroups.set(key, [
+        ...(briefingFeedbackGroups.get(key) ?? []),
+        { episodeId: episode.id, edgeIds: episode.affectedEdgeIds, organisationId, siteId, workerId, roleType, rating, comment },
+      ]);
+    }
+  }
+
+  for (const [key, group] of fitFeedbackGroups) {
+    if (group.length < 2) continue;
+    const first = group[0];
+    if (!first) continue;
+    const averageRating = group.reduce((sum, item) => sum + item.rating, 0) / group.length;
+    const content = `Employer feedback repeatedly rated this worker strongly at this site${first.roleType ? ` for ${first.roleType}` : ""}. Review before using as an operational fit signal.`;
+    await upsertSuggestion(app, {
+      action: "propose_fit_feedback",
+      ownerType: "worker",
+      ownerId: first.workerId,
+      subjectType: "site",
+      subjectId: first.siteId,
+      affectedEdgeIds: [...new Set(group.flatMap((item) => item.edgeIds))],
+      title: "Review post-shift fit feedback",
+      explanation: `${group.length} non-contested employer feedback items suggest a repeat fit signal. Approval creates a pending worker memory for confirmation, not an active ranking rule.`,
+      inputs: {
+        key,
+        reason: "repeated_positive_employer_feedback",
+        workerId: first.workerId,
+        organisationId: first.organisationId,
+        siteId: first.siteId,
+        roleType: first.roleType,
+        ratingAverage: Number(averageRating.toFixed(2)),
+        content,
+        episodeIds: group.map((item) => item.episodeId),
+        comments: group.map((item) => item.comment).filter(Boolean).slice(0, 3),
+        count: group.length,
+      },
+    });
+  }
+
+  for (const [key, group] of briefingFeedbackGroups) {
+    if (group.length < 2) continue;
+    const first = group[0];
+    if (!first) continue;
+    const comments = group.map((item) => item.comment).filter(Boolean).slice(0, 3);
+    const note = `Workers repeatedly mentioned this preparation detail for future shifts: ${comments.join(" / ")}`.slice(0, 1000);
+    await upsertSuggestion(app, {
+      action: "propose_briefing_note",
+      ownerType: "organisation",
+      ownerId: first.organisationId,
+      subjectType: "site",
+      subjectId: first.siteId,
+      affectedEdgeIds: [...new Set(group.flatMap((item) => item.edgeIds))],
+      title: "Create briefing note from shift feedback",
+      explanation: `${group.length} non-contested worker feedback items mention preparation or site context. Approval creates an active briefing note for future shifts.`,
+      inputs: {
+        key,
+        reason: "repeated_worker_briefing_feedback",
+        organisationId: first.organisationId,
+        siteId: first.siteId,
+        roleType: first.roleType,
+        note,
+        episodeIds: group.map((item) => item.episodeId),
+        comments,
+        count: group.length,
+      },
+    });
+  }
+
   return app.db.memoryReviewSuggestion.findMany({
     where: { status: "pending" },
     orderBy: [{ createdAt: "desc" }],
@@ -871,6 +1003,74 @@ async function resolveSuggestion(
           confidence: 0.76,
           confirmedAt: new Date(),
           confirmedBy: adminId,
+        },
+      });
+      outputs.createdMemoryId = memory.id;
+    } else if (suggestion.action === "propose_briefing_note") {
+      const inputs = jsonRecord(suggestion.inputs);
+      const note = typeof inputs.note === "string" ? inputs.note : suggestion.explanation;
+      const value = {
+        valueType: "briefing_note",
+        note,
+        audience: "worker",
+        priority: "normal",
+      };
+      const memory = await tx.memoryEntry.create({
+        data: {
+          ownerType: "organisation",
+          ownerId: suggestion.ownerId,
+          subjectType: suggestion.subjectType ?? "site",
+          subjectId: suggestion.subjectId ?? suggestion.ownerId,
+          kind: "briefing_note",
+          key: keyFromTitle("briefing_note", suggestion.title),
+          title: suggestion.title,
+          content: note,
+          value: value as Prisma.InputJsonValue,
+          sourceType: "feedback",
+          sourceRefType: "MemoryReviewSuggestion",
+          sourceRefId: suggestion.id,
+          visibility: "operational",
+          status: "active",
+          useScopes: ["briefing", "explanation"],
+          sensitivity: "standard",
+          sourceLabel: "Post-shift learning",
+          confidence: 0.74,
+          confirmedAt: new Date(),
+          confirmedBy: adminId,
+        },
+      });
+      outputs.createdMemoryId = memory.id;
+    } else if (suggestion.action === "propose_fit_feedback") {
+      const inputs = jsonRecord(suggestion.inputs);
+      const roleType = typeof inputs.roleType === "string" ? inputs.roleType : "post_shift_feedback";
+      const ratingAverage = typeof inputs.ratingAverage === "number" ? inputs.ratingAverage : 4;
+      const content = typeof inputs.content === "string" ? inputs.content : suggestion.explanation;
+      const value = {
+        valueType: "role_confidence",
+        roleType,
+        confidence: Math.max(0, Math.min(1, ratingAverage / 5)),
+        evidence: content,
+      };
+      const memory = await tx.memoryEntry.create({
+        data: {
+          ownerType: "worker",
+          ownerId: suggestion.ownerId,
+          subjectType: suggestion.subjectType ?? "site",
+          subjectId: suggestion.subjectId ?? suggestion.ownerId,
+          kind: "fit_signal",
+          key: keyFromTitle("fit_signal", suggestion.title),
+          title: suggestion.title,
+          content,
+          value: value as Prisma.InputJsonValue,
+          sourceType: "feedback",
+          sourceRefType: "MemoryReviewSuggestion",
+          sourceRefId: suggestion.id,
+          visibility: "operational",
+          status: "pending_confirmation",
+          useScopes: ["ranking_signal", "explanation"],
+          sensitivity: "standard",
+          sourceLabel: "Post-shift learning",
+          confidence: 0.7,
         },
       });
       outputs.createdMemoryId = memory.id;

@@ -134,6 +134,7 @@ export interface MemoryAgent {
   rememberFromEvent(input: MemoryEventInput): Promise<AgentActionResult<MemoryEntry[]>>;
   recordOfferOutcome(offerId: string, outcome: "accepted" | "declined"): Promise<AgentActionResult>;
   recordShiftEvent(shiftId: string, outcome: string): Promise<AgentActionResult>;
+  recordFeedbackEvent(feedbackId: string): Promise<AgentActionResult>;
   recordInfluence(input: MemoryInfluenceInput): Promise<void>;
   getOrganisationContext(organisationId: string, opts?: MemoryContextOptions): Promise<MemoryContext>;
   getWorkerContext(workerId: string, opts?: MemoryContextOptions): Promise<MemoryContext>;

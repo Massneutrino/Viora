@@ -8,16 +8,18 @@ Viora now has a strong Phase 0/1 memory foundation: governed `MemoryEntry`,
 `MemoryEdge`, `MemoryEpisode`, and `MemoryReviewSuggestion` records, typed values,
 use scopes, visibility controls, review-gated imports, influence UX, audit events,
 memory impact analytics, temporal scoring, consolidation suggestions, reviewed
-procedural intake playbooks, and a hard compliance boundary. That is better than
-a generic "vector store of memories" because it treats memory as an operational
-system with ownership, provenance, edit/delete paths, review, and scoped use.
+procedural intake playbooks, post-shift learning loops, and a hard compliance
+boundary. That is better than a generic "vector store of memories" because it
+treats memory as an operational system with ownership, provenance, edit/delete
+paths, review, and scoped use.
 
 The main gap is not basic memory storage. The gap is turning memory into a
 measured learning system for agentic staffing:
 
 - Prove the outcome lift of memory-assisted workflows over time.
-- Expand reviewed procedural learning beyond intake into briefings, CPD
-  recommendations, and eventually carefully bounded ranking guidance.
+- Expand reviewed procedural learning beyond intake and post-shift briefing/fit
+  learning into CPD recommendations and eventually carefully bounded ranking
+  guidance.
 - Add real connector integrations with consent, provenance, deletion propagation,
   and operational-use review.
 - Move toward graph/semantic hybrid retrieval once Viora has enough real booking,
@@ -70,8 +72,9 @@ Current gaps:
 
 - Memory impact is instrumented, but not yet backed by controlled experiments or
   enough real production volume.
-- Procedural learning v1 is limited to reviewed intake clarification playbooks;
-  briefing, CPD, and ranking playbooks remain future work.
+- Procedural learning v1 now covers reviewed intake clarification playbooks and
+  post-shift briefing/fit suggestions; CPD and ranking playbooks remain future
+  work.
 - Memory connectors are still review-gated foundations, not live bidirectional
   integrations.
 - Retrieval is scoped and tested, but not yet graph/semantic hybrid retrieval.
@@ -305,17 +308,24 @@ Target layers:
    outcomes. These playbooks are `pattern` memories scoped to `intake_default`
    and `explanation`; they have no ranking or compliance impact.
 
+6. Post-shift learning is review-gated.
+
+   Worker and employer feedback creates `Feedback`, audit rows and
+   `MemoryEpisode` evidence. Repeated non-contested feedback can propose briefing
+   notes or fit-feedback memories. Briefing notes become active only after admin
+   apply; fit feedback remains `pending_confirmation` because it can affect
+   ranking later.
+
 ### Next: Fit Graph / Memory Intelligence
 
-1. Add post-shift learning loops.
+1. Extend post-shift learning into richer playbooks.
 
    Briefing and matching should learn from both sides:
 
-   - Was the site description accurate?
-   - Did the worker feel prepared?
-   - Did the employer rebook the worker?
    - Did a CPD recommendation later improve acceptance, performance, or pay?
    - Was a negative memory disputed?
+   - Which briefing templates improve worker confidence?
+   - Which reviewed feedback patterns deserve wider procedural playbooks?
 
 2. Add retrieval quality controls.
 
@@ -502,7 +512,7 @@ Memory quality metrics:
 
 ### Next
 
-- Add post-shift learning loops connected to briefings, CPD, and ranking review.
+- Extend post-shift learning into CPD and ranking review.
 - Add retrieval thresholds and weak-memory fallback behavior.
 - Run memory impact experiments once real workflow volume is available.
 - Harden consolidation review with history, filters, and scheduled generation.

@@ -604,6 +604,113 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
       };
     },
 
+    async recordFeedbackEvent(feedbackId) {
+      const feedback = await db.feedback.findUnique({
+        where: { id: feedbackId },
+        include: {
+          shift: {
+            include: {
+              booking: {
+                include: {
+                  site: true,
+                  worker: true,
+                  organisation: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!feedback) {
+        return {
+          success: false,
+          explanation: "Feedback not found.",
+          requiresHumanApproval: false,
+          auditPayload: { feedbackId, error: "not_found" },
+        };
+      }
+
+      const booking = feedback.shift.booking;
+      const rating = feedback.rating ?? null;
+      const positive = rating !== null && rating >= 4 && !feedback.contested;
+      const negative = feedback.contested || (rating !== null && rating <= 2);
+      const kind = feedback.fromType === "organisation"
+        ? positive
+          ? "fit_signal"
+          : negative
+            ? "risk"
+            : "feedback_summary"
+        : "feedback_summary";
+      const ownerType = feedback.fromType === "organisation" ? "worker" : "organisation";
+      const ownerId = feedback.fromType === "organisation" ? booking.workerId : booking.organisationId;
+      const delta = feedback.fromType === "organisation"
+        ? positive
+          ? 0.16
+          : negative
+            ? -0.18
+            : 0.04
+        : positive
+          ? 0.08
+          : negative
+            ? -0.08
+            : 0.03;
+      const confidence = feedback.contested ? 0.45 : positive || negative ? 0.74 : 0.58;
+      const outcome = feedback.contested ? "contested" : rating === null ? "commented" : `rating_${rating}`;
+      const label = feedback.fromType === "organisation"
+        ? `${booking.organisation.name} feedback for ${booking.worker.firstName} at ${booking.site.name}: ${outcome}`
+        : `${booking.worker.firstName} feedback about ${booking.site.name}: ${outcome}`;
+
+      await reinforceEdge({
+        ownerType,
+        ownerId,
+        fromType: ownerType,
+        fromId: ownerId,
+        toType: "site",
+        toId: booking.siteId,
+        kind,
+        label,
+        delta,
+        confidence,
+        sourceType: "feedback",
+        sourceRefType: "Feedback",
+        sourceRefId: feedback.id,
+        entityType: "Feedback",
+        entityId: feedback.id,
+        outcome,
+        metadata: {
+          feedbackId: feedback.id,
+          shiftId: feedback.shiftId,
+          bookingId: booking.id,
+          organisationId: booking.organisationId,
+          workerId: booking.workerId,
+          siteId: booking.siteId,
+          roleType: booking.roleType,
+          rating,
+          comment: feedback.comment,
+          contested: feedback.contested,
+          feedbackFromType: feedback.fromType,
+          feedbackFromId: feedback.fromId,
+        } as Prisma.InputJsonValue,
+      });
+
+      await writeMemoryAudit(
+        db,
+        "memory.feedback.learn",
+        "Feedback",
+        feedback.id,
+        { feedbackId, fromType: feedback.fromType, rating, contested: feedback.contested } as Prisma.InputJsonValue,
+        { ownerType, ownerId, siteId: booking.siteId, roleType: booking.roleType, kind } as Prisma.InputJsonValue,
+        "recorded",
+      );
+
+      return {
+        success: true,
+        explanation: "Memory graph updated from shift feedback.",
+        requiresHumanApproval: false,
+        auditPayload: { feedbackId, ownerType, ownerId, kind },
+      };
+    },
+
     async recordInfluence(input) {
       if (input.memoryIds.length === 0 && (input.edgeIds ?? []).length === 0) return;
       await writeMemoryAudit(
