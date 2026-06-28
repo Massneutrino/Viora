@@ -8,7 +8,8 @@ export type MemoryValueType =
   | "role_confidence"
   | "briefing_note"
   | "worker_relationship"
-  | "cpd_training_signal";
+  | "cpd_training_signal"
+  | "procedural_playbook";
 
 export type CpdTrainingSignalType =
   | "skill_interest"
@@ -27,7 +28,8 @@ export type MemoryTypedValue =
   | RoleConfidenceMemoryValue
   | BriefingNoteMemoryValue
   | WorkerRelationshipMemoryValue
-  | CpdTrainingSignalMemoryValue;
+  | CpdTrainingSignalMemoryValue
+  | ProceduralPlaybookMemoryValue;
 
 export interface SiteInstructionMemoryValue {
   valueType: "site_instruction";
@@ -96,6 +98,28 @@ export interface CpdTrainingSignalMemoryValue {
   requestedByOrganisationId?: string;
 }
 
+export interface ProceduralPlaybookMemoryValue {
+  valueType: "procedural_playbook";
+  playbookType: "intake_clarification";
+  trigger: {
+    organisationId: string;
+    siteId?: string;
+    roleType?: string;
+    missingFields: string[];
+  };
+  guidance: string;
+  evidence: {
+    eventIds: string[];
+    count: number;
+    windowDays: number;
+  };
+  guardrails: {
+    reviewRequired: true;
+    rankingImpact: "none";
+    complianceImpact: "none";
+  };
+}
+
 export interface MemoryValueValidationResult {
   ok: boolean;
   value?: Record<string, unknown>;
@@ -112,6 +136,7 @@ const VALUE_TYPES = new Set<MemoryValueType>([
   "briefing_note",
   "worker_relationship",
   "cpd_training_signal",
+  "procedural_playbook",
 ]);
 
 const CPD_SIGNAL_TYPES = new Set<CpdTrainingSignalType>([
@@ -138,6 +163,7 @@ const EXPECTED_KIND: Partial<Record<MemoryValueType, MemoryKind[]>> = {
   briefing_note: ["briefing_note"],
   worker_relationship: ["preference", "risk", "fit_signal"],
   cpd_training_signal: ["preference", "fit_signal", "briefing_note", "feedback_summary"],
+  procedural_playbook: ["pattern"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -174,6 +200,14 @@ function timeWindowArray(value: unknown): boolean {
 
 function isCpdSignalType(value: unknown): value is CpdTrainingSignalType {
   return typeof value === "string" && CPD_SIGNAL_TYPES.has(value as CpdTrainingSignalType);
+}
+
+function nestedRecord(value: unknown, label: string, errors: string[]): Record<string, unknown> | null {
+  if (!isRecord(value)) {
+    errors.push(`${label} must be an object.`);
+    return null;
+  }
+  return value;
 }
 
 function addKindWarning(errors: string[], valueType: MemoryValueType, kind: MemoryKind) {
@@ -305,6 +339,44 @@ export function validateMemoryValue(kind: MemoryKind, value: unknown): MemoryVal
     }
     if (value.signalType === "expiring_training" && !isString(value.expiresAt)) {
       errors.push("cpd_training_signal.expiring_training requires expiresAt.");
+    }
+  }
+
+  if (valueType === "procedural_playbook") {
+    if (value.playbookType !== "intake_clarification") {
+      errors.push("procedural_playbook.playbookType must be intake_clarification.");
+    }
+    const trigger = nestedRecord(value.trigger, "procedural_playbook.trigger", errors);
+    if (trigger) {
+      if (!isString(trigger.organisationId)) errors.push("procedural_playbook.trigger.organisationId is required.");
+      if (trigger.siteId !== undefined && !isString(trigger.siteId)) {
+        errors.push("procedural_playbook.trigger.siteId must be a string.");
+      }
+      if (trigger.roleType !== undefined && !isString(trigger.roleType)) {
+        errors.push("procedural_playbook.trigger.roleType must be a string.");
+      }
+      if (!stringArray(trigger.missingFields) || !Array.isArray(trigger.missingFields) || trigger.missingFields.length === 0) {
+        errors.push("procedural_playbook.trigger.missingFields must be a non-empty string array.");
+      }
+    }
+    if (!isString(value.guidance)) errors.push("procedural_playbook.guidance is required.");
+    const evidence = nestedRecord(value.evidence, "procedural_playbook.evidence", errors);
+    if (evidence) {
+      if (!Array.isArray(evidence.eventIds) || !evidence.eventIds.every(isString) || evidence.eventIds.length === 0) {
+        errors.push("procedural_playbook.evidence.eventIds must be a non-empty string array.");
+      }
+      if (!isNumber(evidence.count) || evidence.count < 1) {
+        errors.push("procedural_playbook.evidence.count must be a positive number.");
+      }
+      if (!isNumber(evidence.windowDays) || evidence.windowDays < 1) {
+        errors.push("procedural_playbook.evidence.windowDays must be a positive number.");
+      }
+    }
+    const guardrails = nestedRecord(value.guardrails, "procedural_playbook.guardrails", errors);
+    if (guardrails) {
+      if (guardrails.reviewRequired !== true) errors.push("procedural_playbook.guardrails.reviewRequired must be true.");
+      if (guardrails.rankingImpact !== "none") errors.push("procedural_playbook.guardrails.rankingImpact must be none.");
+      if (guardrails.complianceImpact !== "none") errors.push("procedural_playbook.guardrails.complianceImpact must be none.");
     }
   }
 

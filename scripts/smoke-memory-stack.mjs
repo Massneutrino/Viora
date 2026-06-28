@@ -34,6 +34,8 @@ const runId = `smoke_${Date.now()}`;
 const { PrismaClient } = await import("@prisma/client");
 const prisma = new PrismaClient();
 let app = null;
+let proceduralSuggestionId = null;
+let proceduralMemoryId = null;
 
 function log(message) {
   console.log(`✓ ${message}`);
@@ -302,6 +304,59 @@ try {
   );
   log("memory consolidation review verified");
 
+  const proceduralRoleType = `smoke_role_${runId}`;
+  for (let idx = 0; idx < 3; idx += 1) {
+    await prisma.auditEvent.create({
+      data: {
+        actorType: "agent",
+        actorId: "v",
+        action: "intake.clarify",
+        entityType: "Conversation",
+        entityId: `${runId}_procedural_conversation_${idx}`,
+        inputs: {
+          organisationId: ORG_ID,
+          rawInput: `Need ${proceduralRoleType} cover; procedural smoke ${idx}.`,
+          channel: "web",
+          conversationId: null,
+          intent: { roleType: proceduralRoleType, siteId: "demo-site" },
+          missingFields: ["payRate"],
+          guardrails: {},
+        },
+        outputs: {
+          message: "Please confirm the daily pay rate.",
+          conversationId: `${runId}_procedural_conversation_${idx}`,
+          bookingRequestId: null,
+          fallbackUsed: false,
+        },
+        outcome: "clarification_required",
+      },
+    });
+  }
+  const procedural = await request("/v1/admin/memory/consolidation");
+  const proceduralSuggestion = procedural.suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_playbook" &&
+      suggestion.ownerId === ORG_ID &&
+      suggestion.inputs?.trigger?.roleType === proceduralRoleType,
+  );
+  assert(proceduralSuggestion, "Procedural learning did not suggest an intake playbook.");
+  proceduralSuggestionId = proceduralSuggestion.id;
+  await request(`/v1/admin/memory/consolidation/${proceduralSuggestion.id}/apply`, {
+    method: "POST",
+    body: JSON.stringify({ adminId: "smoke-test" }),
+  });
+  const proceduralMemory = await prisma.memoryEntry.findFirst({
+    where: {
+      sourceRefType: "MemoryReviewSuggestion",
+      sourceRefId: proceduralSuggestion.id,
+      status: "active",
+    },
+  });
+  assert(proceduralMemory?.value?.valueType === "procedural_playbook", "Procedural playbook memory was not created.");
+  assert(!proceduralMemory.useScopes.includes("ranking_signal"), "Procedural playbook unexpectedly has ranking scope.");
+  proceduralMemoryId = proceduralMemory.id;
+  log("reviewed procedural learning verified");
+
   const offer = await request(`/v1/workers/${WORKER_ID}/offer`);
   if (offer.offer?.id === OFFER_ID) {
     await request(`/v1/workers/${WORKER_ID}/offers/${OFFER_ID}/decline`, { method: "POST" });
@@ -415,6 +470,8 @@ try {
   await prisma.memoryReviewSuggestion.deleteMany({
     where: { affectedMemoryIds: { has: consolidationMemoryId } },
   });
+  if (proceduralMemoryId) await prisma.memoryEntry.deleteMany({ where: { id: proceduralMemoryId } });
+  if (proceduralSuggestionId) await prisma.memoryReviewSuggestion.deleteMany({ where: { id: proceduralSuggestionId } });
   await prisma.memoryEntry.deleteMany({ where: { id: consolidationMemoryId } });
   log("memory cleanup completed");
 

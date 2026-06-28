@@ -427,6 +427,30 @@ function slugText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function proceduralPlaybookKey(input: {
+  organisationId: string;
+  siteId?: string;
+  roleType?: string;
+  missingFields: string[];
+}) {
+  return [
+    "procedural_playbook",
+    "intake",
+    input.organisationId,
+    input.siteId ?? "any_site",
+    input.roleType ?? "any_role",
+    [...input.missingFields].sort().join("+"),
+  ].join(":");
+}
+
 function suggestionKey(action: string, ids: string[]) {
   return `${action}:${[...ids].sort().join(":")}`;
 }
@@ -446,7 +470,10 @@ async function upsertSuggestion(
     inputs: Record<string, unknown>;
   },
 ) {
-  const key = suggestionKey(input.action, [...(input.affectedMemoryIds ?? []), ...(input.affectedEdgeIds ?? [])]);
+  const key =
+    typeof input.inputs.key === "string"
+      ? input.inputs.key
+      : suggestionKey(input.action, [...(input.affectedMemoryIds ?? []), ...(input.affectedEdgeIds ?? [])]);
   const existing = await app.db.memoryReviewSuggestion.findFirst({
     where: { status: "pending", inputs: { path: ["key"], equals: key } },
   });
@@ -475,7 +502,8 @@ function contradictionGroupKey(memory: { ownerType: string; ownerId: string; sub
 async function analyzeMemoryConsolidation(app: Parameters<FastifyPluginAsync>[0]) {
   const now = new Date();
   const staleCutoff = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
-  const [activeMemories, influenceEvents, edges, recentEpisodes] = await Promise.all([
+  const proceduralCutoff = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const [activeMemories, influenceEvents, edges, recentEpisodes, intakeClarifications] = await Promise.all([
     app.db.memoryEntry.findMany({
       where: { status: "active" },
       orderBy: [{ updatedAt: "desc" }],
@@ -492,9 +520,14 @@ async function analyzeMemoryConsolidation(app: Parameters<FastifyPluginAsync>[0]
       take: 300,
     }),
     app.db.memoryEpisode.findMany({
-      where: { occurredAt: { gte: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000) } },
+      where: { occurredAt: { gte: proceduralCutoff } },
       orderBy: [{ occurredAt: "desc" }],
       take: 300,
+    }),
+    app.db.auditEvent.findMany({
+      where: { action: "intake.clarify", createdAt: { gte: proceduralCutoff }, outcome: "clarification_required" },
+      orderBy: [{ createdAt: "desc" }],
+      take: 1000,
     }),
   ]);
 
@@ -615,6 +648,84 @@ async function analyzeMemoryConsolidation(app: Parameters<FastifyPluginAsync>[0]
     });
   }
 
+  const existingPlaybookKeys = new Set(
+    activeMemories
+      .filter((memory) => memory.kind === "pattern")
+      .map((memory) => jsonRecord(memory.value))
+      .filter((value) => value.valueType === "procedural_playbook" && typeof value.key === "string")
+      .map((value) => String(value.key)),
+  );
+  const intakeGroups = new Map<
+    string,
+    Array<{
+      id: string;
+      organisationId: string;
+      siteId?: string;
+      roleType?: string;
+      missingFields: string[];
+      rawInput?: string;
+      createdAt: Date;
+    }>
+  >();
+  for (const event of intakeClarifications) {
+    const inputs = jsonRecord(event.inputs);
+    const intent = jsonRecord(inputs.intent);
+    const organisationId = typeof inputs.organisationId === "string" ? inputs.organisationId : undefined;
+    const missingFields = stringList(inputs.missingFields).sort();
+    if (!organisationId || missingFields.length === 0) continue;
+    const siteId = typeof intent.siteId === "string" ? intent.siteId : undefined;
+    const roleType = typeof intent.roleType === "string" ? intent.roleType : undefined;
+    const key = proceduralPlaybookKey({ organisationId, siteId, roleType, missingFields });
+    intakeGroups.set(key, [
+      ...(intakeGroups.get(key) ?? []),
+      {
+        id: event.id,
+        organisationId,
+        siteId,
+        roleType,
+        missingFields,
+        rawInput: typeof inputs.rawInput === "string" ? inputs.rawInput : undefined,
+        createdAt: event.createdAt,
+      },
+    ]);
+  }
+  for (const [key, group] of intakeGroups) {
+    if (group.length < 3 || existingPlaybookKeys.has(key)) continue;
+    const first = group[0];
+    if (!first) continue;
+    const missing = first.missingFields.join(", ");
+    const triggerParts = [
+      first.roleType ? `role ${first.roleType}` : "any role",
+      first.siteId ? `site ${first.siteId}` : "any site",
+      `missing ${missing}`,
+    ];
+    const guidance = `When ${triggerParts.join(" / ")} recurs for this organisation, ask a concise follow-up for ${missing} before confirming the booking. Treat this as clarification guidance only; do not change compliance, ranking, or employer guardrails.`;
+    await upsertSuggestion(app, {
+      action: "propose_playbook",
+      ownerType: "organisation",
+      ownerId: first.organisationId,
+      subjectType: first.siteId ? "site" : "organisation",
+      subjectId: first.siteId ?? first.organisationId,
+      title: `Approve intake playbook: ${missing}`,
+      explanation: `V saw ${group.length} similar intake clarifications in the last 60 days. Approval creates an active intake guidance memory, not a ranking or compliance rule.`,
+      inputs: {
+        key,
+        reason: "repeated_intake_clarification",
+        trigger: {
+          organisationId: first.organisationId,
+          siteId: first.siteId,
+          roleType: first.roleType,
+          missingFields: first.missingFields,
+        },
+        guidance,
+        eventIds: group.map((item) => item.id),
+        sampleInputs: group.map((item) => item.rawInput).filter(Boolean).slice(0, 3),
+        count: group.length,
+        windowDays: 60,
+      },
+    });
+  }
+
   return app.db.memoryReviewSuggestion.findMany({
     where: { status: "pending" },
     orderBy: [{ createdAt: "desc" }],
@@ -709,6 +820,57 @@ async function resolveSuggestion(
           sensitivity: "standard",
           sourceLabel: "Memory consolidation",
           confidence: 0.72,
+        },
+      });
+      outputs.createdMemoryId = memory.id;
+    } else if (suggestion.action === "propose_playbook") {
+      const inputs = jsonRecord(suggestion.inputs);
+      const trigger = jsonRecord(inputs.trigger);
+      const missingFields = stringList(trigger.missingFields);
+      const value = {
+        valueType: "procedural_playbook",
+        playbookType: "intake_clarification",
+        key: typeof inputs.key === "string" ? inputs.key : suggestion.id,
+        trigger: {
+          organisationId: suggestion.ownerId,
+          ...(typeof trigger.siteId === "string" ? { siteId: trigger.siteId } : {}),
+          ...(typeof trigger.roleType === "string" ? { roleType: trigger.roleType } : {}),
+          missingFields,
+        },
+        guidance: typeof inputs.guidance === "string" ? inputs.guidance : suggestion.explanation,
+        evidence: {
+          eventIds: stringList(inputs.eventIds),
+          count: typeof inputs.count === "number" ? inputs.count : stringList(inputs.eventIds).length,
+          windowDays: typeof inputs.windowDays === "number" ? inputs.windowDays : 60,
+        },
+        guardrails: {
+          reviewRequired: true,
+          rankingImpact: "none",
+          complianceImpact: "none",
+        },
+      };
+      const memory = await tx.memoryEntry.create({
+        data: {
+          ownerType: "organisation",
+          ownerId: suggestion.ownerId,
+          subjectType: suggestion.subjectType ?? "organisation",
+          subjectId: suggestion.subjectId ?? suggestion.ownerId,
+          kind: "pattern",
+          key: keyFromTitle("pattern", suggestion.title),
+          title: suggestion.title,
+          content: value.guidance,
+          value: value as Prisma.InputJsonValue,
+          sourceType: "system_event",
+          sourceRefType: "MemoryReviewSuggestion",
+          sourceRefId: suggestion.id,
+          visibility: "operational",
+          status: "active",
+          useScopes: ["intake_default", "explanation"],
+          sensitivity: "standard",
+          sourceLabel: "Procedural learning",
+          confidence: 0.76,
+          confirmedAt: new Date(),
+          confirmedBy: adminId,
         },
       });
       outputs.createdMemoryId = memory.id;

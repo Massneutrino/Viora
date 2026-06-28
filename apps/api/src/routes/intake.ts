@@ -625,6 +625,10 @@ export async function processIntakeTurn(
           entityType: auditEntity.entityType,
           entityId: auditEntity.entityId,
           inputs: {
+            organisationId: body.organisationId,
+            rawInput: body.rawInput,
+            channel: body.channel,
+            conversationId: body.conversationId ?? null,
             intent: intentSnapshot,
             missingFields,
             guardrails: guardrailSnapshot,

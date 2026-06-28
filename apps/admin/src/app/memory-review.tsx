@@ -78,6 +78,7 @@ export type MemoryConsolidationSuggestion = {
   affectedEdgeIds: string[];
   title: string;
   explanation: string;
+  inputs?: Record<string, unknown> | null;
   createdAt: string;
 };
 
@@ -87,6 +88,11 @@ function short(value: string): string {
 
 function time(value: string): string {
   return new Date(value).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" });
+}
+
+function actionLabel(action: string): string {
+  if (action === "propose_playbook") return "Procedural playbook";
+  return action.replace(/_/g, " ");
 }
 
 export function MemoryReview({ initial }: { initial: MemoryReviewItem[] }) {
@@ -235,7 +241,7 @@ export function MemoryConsolidation({ initial }: { initial: MemoryConsolidationS
           <p style={{ margin: 0, color: "var(--text)", fontWeight: 600, fontSize: "0.875rem" }}>{item.title}</p>
           <p style={{ margin: "0.25rem 0 0", color: "var(--muted)", fontSize: "0.8125rem", lineHeight: 1.45 }}>{item.explanation}</p>
           <p style={{ margin: "0.5rem 0 0", color: "var(--faint)", fontSize: "0.6875rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {item.action} Â· {item.ownerType}:{short(item.ownerId)} Â· memories {item.affectedMemoryIds.length} Â· edges {item.affectedEdgeIds.length} Â· {time(item.createdAt)}
+            {actionLabel(item.action)} / {item.ownerType}:{short(item.ownerId)} / memories {item.affectedMemoryIds.length} / edges {item.affectedEdgeIds.length} / {time(item.createdAt)}
           </p>
           <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
             <button disabled={busyId === item.id} onClick={() => void decide(item.id, "apply")} style={{ border: "none", borderRadius: 7, padding: "0.4rem 0.7rem", background: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "0.75rem", fontWeight: 600 }}>

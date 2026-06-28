@@ -1,34 +1,32 @@
 # Viora Memory Deep Dive
 
-Date: 2026-06-26
+Date: 2026-06-28
 
 ## Executive Summary
 
-Viora already has a strong Phase 0 memory foundation: governed `MemoryEntry` and
-`MemoryEdge` records, use scopes, visibility controls, review-gated imports,
-audit events, memory influence tracking, and a hard compliance boundary. That is
-better than a generic "vector store of memories" because it treats memory as an
-operational system with ownership, provenance, edit/delete paths, and scoped use.
+Viora now has a strong Phase 0/1 memory foundation: governed `MemoryEntry`,
+`MemoryEdge`, `MemoryEpisode`, and `MemoryReviewSuggestion` records, typed values,
+use scopes, visibility controls, review-gated imports, influence UX, audit events,
+memory impact analytics, temporal scoring, consolidation suggestions, reviewed
+procedural intake playbooks, and a hard compliance boundary. That is better than
+a generic "vector store of memories" because it treats memory as an operational
+system with ownership, provenance, edit/delete paths, review, and scoped use.
 
 The main gap is not basic memory storage. The gap is turning memory into a
 measured learning system for agentic staffing:
 
-- Preserve richer event-level episodes before compressing them into durable
-  memories.
-- Add temporal reasoning so fit signals can decay, be superseded, or be
-  explained at a point in time.
-- Add memory evaluations so Viora can prove memory improves intake accuracy,
-  fill speed, offer acceptance, briefing quality, and repeat bookings.
-- Make CPD a first-class input to Passport, Memory, and Matching rather than a
-  separate training feature bolted on later.
-- Improve worker and employer memory controls so both sides understand when
-  memory affected matching, briefings, and explanations.
+- Prove the outcome lift of memory-assisted workflows over time.
+- Expand reviewed procedural learning beyond intake into briefings, CPD
+  recommendations, and eventually carefully bounded ranking guidance.
+- Add real connector integrations with consent, provenance, deletion propagation,
+  and operational-use review.
+- Move toward graph/semantic hybrid retrieval once Viora has enough real booking,
+  feedback, briefing, and CPD data to justify it.
 
-The recommendation is to keep Phase 0 memory governed and lightweight, then build
-Fit Graph v1 around evidence, temporal signals, CPD/skills, and measurable
-marketplace outcomes in Phase 1. A large standalone graph rebuild should wait
-until the product has enough high-quality booking, feedback, briefing, and CPD
-data to justify it.
+The recommendation is to keep the current memory layer governed and measurable,
+then deepen it through reviewed procedural learning and real outcome analysis.
+A large standalone graph rebuild should still wait until the product has enough
+high-quality booking, feedback, briefing, connector, and CPD data to justify it.
 
 ## Current Viora Baseline
 
@@ -41,7 +39,10 @@ Current implementation:
   sensitivity, source label, connector provenance, expiry, deletion metadata,
   confidence, and confirmation fields.
 - `MemoryEdge` stores weighted relationship signals between workers, sites,
-  roles, bookings, shifts, and relationships.
+  roles, bookings, shifts, and relationships, with temporal/evidence metadata.
+- `MemoryEpisode` stores learning projections from operational events.
+- `MemoryReviewSuggestion` stores review-gated archive, merge, contradiction,
+  confirm-pattern, and procedural-playbook suggestions.
 - The memory agent writes inferred memories from intake and booking events,
   reinforces edges from offer/shift outcomes, retrieves purpose-scoped context,
   and writes `memory.influence` audit events.
@@ -49,8 +50,10 @@ Current implementation:
   to parse or clarify.
 - Ranking retrieves worker memory for `ranking_signal`; current scoring uses
   reliability, commute, memory, and a base score.
-- Worker-facing fit explanations can include offer context memory.
-- Memory CRUD, import, export, admin review, and sandbox tooling exist.
+- Worker and employer surfaces include audience-safe "why V used this memory"
+  explanations.
+- Memory CRUD, import, export, admin review, consolidation review, analytics,
+  smoke tests, evals, and sandbox tooling exist.
 - Compliance remains deterministic through `isEligibleForEducationBooking()`.
 
 Current strengths:
@@ -60,25 +63,18 @@ Current strengths:
 - Worker private memory is separated from employer-facing ranking.
 - Memory influence is auditable.
 - Imported and inferred memories can be review-gated.
-- The architecture already distinguishes entries from graph edges.
+- The architecture already distinguishes semantic entries, graph edges, episodes,
+  review suggestions, and typed procedural playbooks.
 
 Current gaps:
 
-- Event history exists across domain tables and audit rows, but there is no
-  explicit episodic memory layer designed for replay, retrieval, and evaluation.
-- `MemoryEdge` has `weight`, `confidence`, and `evidenceCount`, but no temporal
-  lifecycle fields such as valid-from, valid-until, decay policy, superseded-by,
-  or contradiction handling.
-- Memory extraction is LLM-driven, but there is no memory quality eval suite.
-- There is no memory retrieval eval suite, so Viora cannot yet measure whether
-  the right memory is being retrieved for intake, ranking, briefings, or
-  explanations.
-- Memory impact on matching is not yet experimentally measured.
-- CPD, skills, confidence, induction, and learning goals are not first-class
-  memory or graph concepts yet.
-- Procedural memory is not formalized. Agent improvements still live mainly in
-  code/prompts, not in controlled, versioned playbooks derived from supervised
-  outcomes.
+- Memory impact is instrumented, but not yet backed by controlled experiments or
+  enough real production volume.
+- Procedural learning v1 is limited to reviewed intake clarification playbooks;
+  briefing, CPD, and ranking playbooks remain future work.
+- Memory connectors are still review-gated foundations, not live bidirectional
+  integrations.
+- Retrieval is scoped and tested, but not yet graph/semantic hybrid retrieval.
 
 ## AI Memory Landscape
 
@@ -250,11 +246,11 @@ Target layers:
 
    This avoids a later migration where training data sits outside matching.
 
-### Next: Fit Graph v1
+### Implemented Fit Graph v1 Groundwork
 
-1. Make episodic memory explicit.
+1. Episodic memory is explicit.
 
-   Do not rely only on summaries. Store or derive an event layer that preserves:
+   `MemoryEpisode` now preserves:
 
    - event type
    - actor
@@ -266,12 +262,12 @@ Target layers:
    - whether the episode is allowed for ranking, briefing, explanation, or only
      audit
 
-   Existing `AuditEvent` is close, but it is primarily audit infrastructure. Fit
-   Graph v1 needs an episode abstraction optimized for learning and retrieval.
+   `AuditEvent` remains compliance/audit truth; `MemoryEpisode` is the learning
+   projection.
 
-2. Add temporal edge fields.
+2. Temporal edge fields are in place.
 
-   Extend the edge model or add a related evidence table to represent:
+   `MemoryEdge` now represents:
 
    - evidence event ids
    - first seen / last seen
@@ -282,7 +278,7 @@ Target layers:
 
    This matters because old staffing signals can become misleading.
 
-3. Build CPD into matching.
+3. CPD is a typed memory taxonomy.
 
    CPD should affect matching in three ways:
 
@@ -296,7 +292,22 @@ Target layers:
    shift because a CPD signal affected ranking, that influence must be auditable
    and reviewable.
 
-4. Add post-shift learning loops.
+4. Consolidation is review-gated.
+
+   `MemoryReviewSuggestion` proposes stale archive, duplicate merge,
+   contradiction review, weak-edge supersession, repeated-pattern confirmation,
+   and intake procedural playbooks. Operational memory only changes after admin
+   apply/reject.
+
+5. Procedural learning starts with intake playbooks.
+
+   Viora can propose approved clarification guidance from repeated intake
+   outcomes. These playbooks are `pattern` memories scoped to `intake_default`
+   and `explanation`; they have no ranking or compliance impact.
+
+### Next: Fit Graph / Memory Intelligence
+
+1. Add post-shift learning loops.
 
    Briefing and matching should learn from both sides:
 
@@ -306,11 +317,20 @@ Target layers:
    - Did a CPD recommendation later improve acceptance, performance, or pay?
    - Was a negative memory disputed?
 
-5. Add retrieval quality controls.
+2. Add retrieval quality controls.
 
    Introduce rejection thresholds and fallback behavior. If memory retrieval is
    weak or ambiguous, V should not use it. The product should prefer "I need to
    ask" over silently relying on stale or low-confidence memory.
+
+3. Add memory A/B tests.
+
+   Run controlled comparisons:
+
+   - memory-assisted intake vs baseline intake
+   - memory-assisted ranking vs reliability/commute-only ranking
+   - basic briefing vs memory-rich briefing
+   - CPD-aware recommendations vs no CPD recommendations
 
 ### Later: Best-In-Class Endstate
 
@@ -334,16 +354,7 @@ Target layers:
    Retrieval should combine filters, full-text search, semantic search, and
    graph traversal.
 
-2. Add memory consolidation.
-
-   Periodically convert raw episodes into governed memory:
-
-   - repeated patterns become preferences or fit signals
-   - outdated memories are archived or decayed
-   - contradictions are surfaced for review
-   - high-impact inferred memories require confirmation
-
-3. Add procedural learning under review.
+2. Expand procedural learning under review.
 
    Let Viora learn playbook improvements from outcomes, but keep them out of the
    hot path until approved. Examples:
@@ -353,14 +364,10 @@ Target layers:
    - briefing templates that improve worker confidence
    - CPD recommendations that improve acceptance or repeat booking
 
-4. Add memory A/B tests.
+3. Add live memory connectors.
 
-   Run controlled comparisons:
-
-   - memory-assisted intake vs baseline intake
-   - memory-assisted ranking vs reliability/commute-only ranking
-   - basic briefing vs memory-rich briefing
-   - CPD-aware recommendations vs no CPD recommendations
+   Move from review-gated import/export foundations to consented integrations
+   with provenance, deletion propagation, and operational-use review.
 
 ## CPD: Where It Fits
 
@@ -495,20 +502,19 @@ Memory quality metrics:
 
 ### Next
 
-- Add explicit episodic memory or a learning-optimized event projection.
-- Add temporal/evidence metadata to relationship signals.
-- Make CPD part of Passport, Memory, and Matching.
-- Add post-shift learning loops connected to briefings and ranking.
-- Add retrieval thresholds and stale-memory safeguards.
+- Add post-shift learning loops connected to briefings, CPD, and ranking review.
+- Add retrieval thresholds and weak-memory fallback behavior.
+- Run memory impact experiments once real workflow volume is available.
+- Harden consolidation review with history, filters, and scheduled generation.
+- Extend reviewed procedural learning beyond intake after eval coverage is in
+  place.
 
 ### Later
 
 - Build the full temporal Fit Graph.
-- Add background memory consolidation.
-- Add reviewed procedural learning.
+- Add live memory connectors with consent and deletion propagation.
+- Add graph/semantic hybrid retrieval.
 - Run memory A/B tests.
-- Explore graph/semantic hybrid retrieval once Viora has enough real booking and
-  feedback volume.
 
 ## Implementation Notes For Future Build Specs
 
@@ -523,4 +529,3 @@ Memory quality metrics:
 - Keep worker private memory out of employer-facing ranking unless the worker
   explicitly promotes it.
 - Keep CPD positive and unlock-oriented by default.
-

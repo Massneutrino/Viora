@@ -215,6 +215,32 @@
       }
     },
     {
+      "name": "procedural_intake_playbook_value",
+      "kind": "pattern",
+      "valid": true,
+      "value": {
+        "valueType": "procedural_playbook",
+        "playbookType": "intake_clarification",
+        "trigger": {
+          "organisationId": "org-123",
+          "siteId": "site-123",
+          "roleType": "primary_supply_teacher",
+          "missingFields": ["payRate"]
+        },
+        "guidance": "Ask for the daily pay rate before confirming this recurring KS2 cover request.",
+        "evidence": {
+          "eventIds": ["audit-1", "audit-2", "audit-3"],
+          "count": 3,
+          "windowDays": 60
+        },
+        "guardrails": {
+          "reviewRequired": true,
+          "rankingImpact": "none",
+          "complianceImpact": "none"
+        }
+      }
+    },
+    {
       "name": "invalid_pay_missing_rate_unit",
       "kind": "pay_signal",
       "valid": false,
@@ -278,6 +304,30 @@
         "trainingName": "Safeguarding Level 2",
         "status": "completed",
         "completedAt": "2026-06-01T00:00:00.000Z"
+      }
+    },
+    {
+      "name": "invalid_procedural_playbook_ranking_impact",
+      "kind": "pattern",
+      "valid": false,
+      "value": {
+        "valueType": "procedural_playbook",
+        "playbookType": "intake_clarification",
+        "trigger": {
+          "organisationId": "org-123",
+          "missingFields": ["payRate"]
+        },
+        "guidance": "Ask for pay rate.",
+        "evidence": {
+          "eventIds": ["audit-1", "audit-2", "audit-3"],
+          "count": 3,
+          "windowDays": 60
+        },
+        "guardrails": {
+          "reviewRequired": true,
+          "rankingImpact": "boost",
+          "complianceImpact": "none"
+        }
       }
     }
   ],

@@ -1248,6 +1248,118 @@ async function runConsolidationEvals(app, prisma, refs) {
   log("memory consolidation suggestions and review actions");
 }
 
+async function runProceduralLearningEvals(app, prisma, refs) {
+  const seedClarifications = async (missingFields, label) => {
+    for (let idx = 0; idx < 3; idx += 1) {
+      await prisma.auditEvent.create({
+        data: {
+          actorType: "agent",
+          actorId: "v",
+          action: "intake.clarify",
+          entityType: "Conversation",
+          entityId: id(`procedural-${label}-conversation-${idx}`),
+          inputs: {
+            organisationId: refs.organisation,
+            rawInput: `Need ${roleType} cover at ${refs.site}; procedural eval ${label} ${idx}.`,
+            channel: "web",
+            conversationId: null,
+            intent: {
+              roleType,
+              siteId: refs.site,
+            },
+            missingFields,
+            guardrails: {},
+          },
+          outputs: {
+            message: `Please confirm ${missingFields.join(" and ")}.`,
+            conversationId: id(`procedural-${label}-conversation-${idx}`),
+            bookingRequestId: null,
+            fallbackUsed: false,
+          },
+          outcome: "clarification_required",
+        },
+      });
+    }
+  };
+
+  await seedClarifications(["payRate"], "pay");
+  await seedClarifications(["startAt"], "start");
+
+  const consolidation = await injectJson(app, "/v1/admin/memory/consolidation");
+  const suggestions = consolidation.suggestions ?? [];
+  const paySuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_playbook" &&
+      suggestion.ownerId === refs.organisation &&
+      suggestion.inputs?.trigger?.missingFields?.includes("payRate"),
+  );
+  const startSuggestion = suggestions.find(
+    (suggestion) =>
+      suggestion.action === "propose_playbook" &&
+      suggestion.ownerId === refs.organisation &&
+      suggestion.inputs?.trigger?.missingFields?.includes("startAt"),
+  );
+  assert(paySuggestion, "Procedural learning did not suggest payRate intake playbook.");
+  assert(startSuggestion, "Procedural learning did not suggest startAt intake playbook.");
+
+  const rejectRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/memory/consolidation/${startSuggestion.id}/reject`,
+    payload: { adminId: "memory-eval" },
+  });
+  assert(rejectRes.statusCode === 200, `Procedural playbook reject failed (${rejectRes.statusCode}): ${rejectRes.body}`);
+
+  const applyRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/memory/consolidation/${paySuggestion.id}/apply`,
+    payload: { adminId: "memory-eval" },
+  });
+  assert(applyRes.statusCode === 200, `Procedural playbook apply failed (${applyRes.statusCode}): ${applyRes.body}`);
+
+  const approved = await prisma.memoryEntry.findFirst({
+    where: {
+      sourceRefType: "MemoryReviewSuggestion",
+      sourceRefId: paySuggestion.id,
+      kind: "pattern",
+      status: "active",
+    },
+  });
+  assert(approved, "Applied procedural playbook did not create active memory.");
+  assert(approved.confirmedBy === "memory-eval", "Applied procedural playbook did not record reviewer.");
+  assert(approved.useScopes.includes("intake_default"), "Procedural playbook is not intake-scoped.");
+  assert(!approved.useScopes.includes("ranking_signal"), "Procedural playbook unexpectedly has ranking scope.");
+  assert(approved.value?.valueType === "procedural_playbook", "Procedural playbook valueType was not persisted.");
+  assert(
+    approved.value?.guardrails?.rankingImpact === "none" && approved.value?.guardrails?.complianceImpact === "none",
+    "Procedural playbook guardrails were not persisted.",
+  );
+
+  const rejectedMemory = await prisma.memoryEntry.findFirst({
+    where: { sourceRefType: "MemoryReviewSuggestion", sourceRefId: startSuggestion.id },
+  });
+  assert(!rejectedMemory, "Rejected procedural playbook created memory.");
+
+  const context = await app.agents.memory.getOrganisationContext(refs.organisation, {
+    purpose: "intake_default",
+    audience: "employer",
+    siteId: refs.site,
+  });
+  assert(
+    context.entries.some((memory) => memory.id === approved.id),
+    "Approved procedural playbook did not appear in intake memory retrieval.",
+  );
+
+  const audit = await prisma.auditEvent.findMany({
+    where: {
+      entityType: "MemoryReviewSuggestion",
+      entityId: { in: [paySuggestion.id, startSuggestion.id] },
+      action: { in: ["memory.consolidation.apply", "memory.consolidation.reject"] },
+    },
+  });
+  assert(audit.length === 2, "Procedural playbook review decisions were not audited.");
+  log("reviewed procedural intake playbooks");
+}
+
 async function runOptionalExtractionEvals(app, refs) {
   if (!RUN_LLM_EXTRACTION) {
     log("extraction fixture shape validated (set MEMORY_EVAL_RUN_LLM=1 for live LLM extraction)");
@@ -1310,6 +1422,7 @@ try {
   await runRankingEvals(app, prisma, refs);
   await runOfferExplanationEvals(app, prisma, refs);
   await runConsolidationEvals(app, prisma, refs);
+  await runProceduralLearningEvals(app, prisma, refs);
   await runAnalyticsEvals(app, prisma, refs);
   await runOptionalExtractionEvals(app, refs);
 
