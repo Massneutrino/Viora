@@ -62,8 +62,13 @@ export function createMarketAgent(
         scores.push(score);
         temporalScoresByWorker.set(score.ownerId, scores);
       }
-      const temporalExclusionsByReason = temporalMemory.excluded.reduce<Record<string, number>>((counts, exclusion) => {
-        counts[exclusion.reason] = (counts[exclusion.reason] ?? 0) + 1;
+      const temporalExclusionsByReason = [
+        ...temporalMemory.excluded.map((exclusion) => exclusion.reason),
+        ...rankingMemory.audit.excluded
+          .filter((exclusion) => exclusion.type === "edge")
+          .map((exclusion) => exclusion.reason),
+      ].reduce<Record<string, number>>((counts, reason) => {
+        counts[reason] = (counts[reason] ?? 0) + 1;
         return counts;
       }, {});
 
@@ -177,9 +182,17 @@ export function createMarketAgent(
             edgeIds: rankingMemory.audit.edgeIds,
             temporalMemory: {
               includedEdges: temporalMemory.included.length,
-              excludedEdges: temporalMemory.excluded.length,
+              excludedEdges:
+                temporalMemory.excluded.length +
+                rankingMemory.audit.excluded.filter((exclusion) => exclusion.type === "edge").length,
               excludedByReason: temporalExclusionsByReason,
               scores: temporalMemory.included,
+            },
+            retrieval: {
+              includedMemoryCount: rankingMemory.audit.memoryIds.length,
+              includedEdgeCount: rankingMemory.audit.edgeIds.length,
+              excludedCount: rankingMemory.audit.excluded.length,
+              excluded: rankingMemory.audit.excluded,
             },
           } as unknown as Prisma.InputJsonValue,
           outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
@@ -194,13 +207,16 @@ export function createMarketAgent(
         action: "ranking.complete",
         memoryIds: rankingMemory.audit.memoryIds,
         edgeIds: rankingMemory.audit.edgeIds,
+        excluded: rankingMemory.audit.excluded,
         useScopes: rankingMemory.audit.useScopes,
         outcome: matches.length > 0 ? "candidates_ranked" : "no_eligible_candidates",
         note: "Worker ranking used governed operational/shared memory signals only.",
         metadata: {
           temporalMemory: {
             includedEdges: temporalMemory.included.length,
-            excludedEdges: temporalMemory.excluded.length,
+            excludedEdges:
+              temporalMemory.excluded.length +
+              rankingMemory.audit.excluded.filter((exclusion) => exclusion.type === "edge").length,
             excludedByReason: temporalExclusionsByReason,
             scores: temporalMemory.included,
           },

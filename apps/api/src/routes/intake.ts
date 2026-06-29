@@ -677,6 +677,7 @@ export async function processIntakeTurn(
       action: clarificationNeeded ? "intake.clarify" : "intake.confirm",
       memoryIds: organisationMemory.audit.memoryIds,
       edgeIds: organisationMemory.audit.edgeIds,
+      excluded: organisationMemory.audit.excluded,
       useScopes: organisationMemory.audit.useScopes,
       outcome: clarificationNeeded ? "clarification_required" : "pending_confirmation",
       note: "Organisation memory was supplied to V for intake defaults and clarification reduction.",

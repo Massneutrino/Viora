@@ -43,6 +43,7 @@ Thumbs.db
 
 # Testing
 coverage/
+sandbox-regression-failure-*.json
 
 # Uploaded compliance documents (local storage)
 uploads/

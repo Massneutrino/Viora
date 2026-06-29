@@ -4,7 +4,7 @@ Maps to the 17 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
 
 Legend: ✅ done · 🔜 in progress · 🔲 todo
 
-**Last reviewed:** 2026-06-28
+**Last reviewed:** 2026-06-29
 
 **Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
 
@@ -72,6 +72,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Memory consolidation v1 — `MemoryReviewSuggestion` stores review-gated archive, merge, supersede, contradiction and confirm-pattern suggestions. Admin Memory review exposes consolidation actions via `GET /v1/admin/memory/consolidation` plus apply/reject routes; applying suggestions archives stale memories, merges duplicates, supersedes weak edges, or creates pending-confirmation pattern memories. Evals and smoke coverage verify no automatic operational mutation happens without review.
 - ✅ Reviewed procedural learning v1 — repeated intake clarification patterns can propose `procedural_playbook` memories through the existing admin review queue. Approved playbooks are active organisation `pattern` memories scoped to `intake_default`/`explanation` only, with explicit no-ranking/no-compliance guardrails; rejected suggestions create no memory.
 - ✅ Post-shift learning loops v1 — worker/employer feedback endpoints write `Feedback`, audit rows and memory episodes. Repeated non-contested feedback can propose reviewed briefing notes or fit-feedback memories; briefing notes become active only after admin apply, while fit feedback remains `pending_confirmation` so ranking-affecting learning stays review-gated.
+- ✅ Retrieval thresholds / weak-memory fallback v1 — purpose-scoped memory retrieval now gates entries and edges with deterministic confidence/temporal thresholds. Weak intake defaults are excluded so V asks instead of assuming, weak ranking signals do not affect the existing bounded memory score, and `memory.influence` audits include included/excluded memory and edge reasons.
 
 ---
 

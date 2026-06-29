@@ -12,6 +12,7 @@ import type {
   Offer,
   RateMode,
 } from "@viora/domain";
+import type { MemoryRetrievalExclusion } from "@viora/domain";
 
 /** Parsed staffing intent from natural language intake. */
 export interface ParsedBookingIntent {
@@ -103,6 +104,9 @@ export interface MemoryContext {
     audience: MemoryAudience;
     memoryIds: string[];
     edgeIds: string[];
+    includedMemoryIds: string[];
+    includedEdgeIds: string[];
+    excluded: MemoryRetrievalExclusion[];
     useScopes: MemoryUseScope[];
   };
 }
@@ -123,6 +127,7 @@ export interface MemoryInfluenceInput {
   action: string;
   memoryIds: string[];
   edgeIds?: string[];
+  excluded?: MemoryRetrievalExclusion[];
   useScopes: MemoryUseScope[];
   outcome: string;
   note?: string;

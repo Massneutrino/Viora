@@ -169,6 +169,7 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       action: "offer.surface",
       memoryIds: memoryExplanation.audit.memoryIds,
       edgeIds: memoryExplanation.audit.edgeIds,
+      excluded: memoryExplanation.audit.excluded,
       useScopes: memoryExplanation.audit.useScopes,
       outcome: "offer_shown",
       note: "Worker-facing offer can explain use of the worker's own private memory.",

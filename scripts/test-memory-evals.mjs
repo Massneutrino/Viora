@@ -409,6 +409,8 @@ async function seedEvalData(prisma) {
   const refs = {
     organisation: id("org"),
     site: id("site"),
+    weakOrganisation: id("weak-org"),
+    weakSite: id("weak-site"),
     bookingRequest: id("booking-request"),
     workers: {
       eligible_preferred: id("worker-eligible-preferred"),
@@ -435,6 +437,35 @@ async function seedEvalData(prisma) {
       address: "1 Eval Street, London",
       latitude: 51.5,
       longitude: -0.12,
+    },
+  });
+  await prisma.organisation.create({
+    data: {
+      id: refs.weakOrganisation,
+      name: "Weak Memory Eval Organisation",
+      sector: "education",
+      type: "school",
+    },
+  });
+  await prisma.site.create({
+    data: {
+      id: refs.weakSite,
+      organisationId: refs.weakOrganisation,
+      name: "Weak Memory Eval Site",
+      address: "2 Eval Street, London",
+      latitude: 51.51,
+      longitude: -0.13,
+    },
+  });
+  await prisma.guardrailPolicy.create({
+    data: {
+      organisationId: refs.weakOrganisation,
+      autonomyLevel: "L2",
+      budgetCeiling: 200,
+      approvedRoleTypes: [roleType],
+      workerWhitelist: [],
+      workerBlocklist: [],
+      escalationContacts: [],
     },
   });
   await prisma.guardrailPolicy.create({
@@ -532,6 +563,34 @@ async function seedEvalData(prisma) {
       visibility: "operational",
       useScopes: ["briefing"],
       expiresAt: null,
+    },
+    {
+      ref: "org_weak_intake_default",
+      ownerType: "organisation",
+      ownerId: refs.organisation,
+      subjectType: "site",
+      subjectId: refs.site,
+      kind: "instruction",
+      title: "Weak intake default",
+      content: "Low-confidence intake default should be excluded and not supplied to V.",
+      visibility: "operational",
+      useScopes: ["intake_default"],
+      expiresAt: null,
+      confidence: 0.5,
+    },
+    {
+      ref: "weak_org_only_intake_default",
+      ownerType: "organisation",
+      ownerId: refs.weakOrganisation,
+      subjectType: "site",
+      subjectId: refs.weakSite,
+      kind: "instruction",
+      title: "Weak-only intake default",
+      content: "This low-confidence default must not be supplied to V intake.",
+      visibility: "operational",
+      useScopes: ["intake_default"],
+      expiresAt: null,
+      confidence: 0.5,
     },
     {
       ref: "worker_operational_fit",
@@ -662,6 +721,20 @@ async function seedEvalData(prisma) {
       useScopes: ["ranking_signal"],
       expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
     },
+    {
+      ref: "worker_weak_ranking_fit",
+      ownerType: "worker",
+      ownerId: refs.workers.eligible_baseline,
+      subjectType: "worker",
+      subjectId: refs.workers.eligible_baseline,
+      kind: "fit_signal",
+      title: "Weak ranking fit note",
+      content: "Low-confidence ranking memory should not affect candidate ranking.",
+      visibility: "operational",
+      useScopes: ["ranking_signal", "explanation"],
+      expiresAt: null,
+      confidence: 0.62,
+    },
   ];
 
   for (const seed of memorySeeds) {
@@ -688,7 +761,7 @@ async function seedEvalData(prisma) {
         sensitivity: seed.visibility === "private" ? "sensitive" : "standard",
         sourceLabel: "Memory eval fixture",
         expiresAt: seed.expiresAt,
-        confidence: 0.9,
+        confidence: seed.confidence ?? 0.9,
         confirmedAt: new Date(),
         confirmedBy: "memory-eval",
       },
@@ -743,6 +816,18 @@ async function seedEvalData(prisma) {
       lastEvidenceAt: new Date(),
       decayPolicy: "linear_365d",
     },
+    {
+      ref: "baseline_low_score_site_fit",
+      ownerId: refs.workers.eligible_baseline,
+      fromId: refs.workers.eligible_baseline,
+      toId: refs.site,
+      kind: "pattern",
+      weight: 0.05,
+      confidence: 0.95,
+      label: "Low temporal score fit signal should be excluded.",
+      lastEvidenceAt: new Date(),
+      decayPolicy: "linear_365d",
+    },
   ];
   for (const seed of edgeSeeds) {
     const edgeId = id(`edge-${seed.ref}`);
@@ -788,6 +873,26 @@ function assertRefsAbsent(actualIds, excludedRefs, refMap, testName) {
   }
 }
 
+function assertExcludedRefs(context, testCase, refs) {
+  const excludedMemoryIds = context.audit.excluded
+    .filter((exclusion) => exclusion.type === "memory")
+    .map((exclusion) => exclusion.id);
+  const excludedEdgeIds = context.audit.excluded
+    .filter((exclusion) => exclusion.type === "edge")
+    .map((exclusion) => exclusion.id);
+  assertRefsPresent(excludedMemoryIds, testCase.expectedExcludedMemoryRefs, refs.memories, testCase.name);
+  assertRefsPresent(excludedEdgeIds, testCase.expectedExcludedEdgeRefs, refs.edges, testCase.name);
+  for (const reason of testCase.expectedExcludedReasons ?? []) {
+    assert(
+      context.audit.excluded.some((exclusion) => exclusion.reason === reason),
+      `${testCase.name}: expected exclusion reason ${reason}.`,
+    );
+  }
+  if (testCase.expectedEmptySummary) {
+    assert(context.summary.trim() === "", `${testCase.name}: expected empty usable memory summary.`);
+  }
+}
+
 async function runRetrievalEvals(app, refs) {
   for (const testCase of fixtures.retrievalCases ?? []) {
     if (testCase.context === "organisation") {
@@ -803,6 +908,17 @@ async function runRetrievalEvals(app, refs) {
         context.audit.purpose === testCase.purpose && context.audit.audience === testCase.audience,
         `${testCase.name}: context audit purpose/audience mismatch.`,
       );
+      assertExcludedRefs(context, testCase, refs);
+    } else if (testCase.context === "weakOrganisation") {
+      const context = await app.agents.memory.getOrganisationContext(refs.weakOrganisation, {
+        purpose: testCase.purpose,
+        audience: testCase.audience,
+        siteId: refs.weakSite,
+      });
+      const actualIds = context.entries.map((memory) => memory.id);
+      assertRefsPresent(actualIds, testCase.expectedMemoryRefs, refs.memories, testCase.name);
+      assertRefsAbsent(actualIds, testCase.excludedMemoryRefs, refs.memories, testCase.name);
+      assertExcludedRefs(context, testCase, refs);
     } else if (testCase.context === "workerRanking") {
       const context = await app.agents.memory.getWorkerRankingContext(Object.values(refs.workers), {
         siteId: refs.site,
@@ -815,6 +931,7 @@ async function runRetrievalEvals(app, refs) {
         context.audit.purpose === "ranking_signal" && context.audit.audience === "employer",
         `${testCase.name}: ranking context audit purpose/audience mismatch.`,
       );
+      assertExcludedRefs(context, testCase, refs);
     } else {
       throw new Error(`${testCase.name}: unsupported retrieval context ${testCase.context}.`);
     }
@@ -893,8 +1010,22 @@ async function runRankingEvals(app, prisma, refs) {
     `${influenceCase.name}: expired temporal edge exclusion was not audited.`,
   );
   assert(
+    temporalMetadata.excludedByReason?.low_temporal_score >= 1,
+    `${influenceCase.name}: low temporal score exclusion was not audited.`,
+  );
+  assert(
     temporalMetadata.scores?.some((score) => score.edgeId === refs.edges.eligible_preferred_site_fit),
     `${influenceCase.name}: included temporal edge score was not audited.`,
+  );
+  const retrievalMetadata = influence.inputs?.metadata?.retrieval;
+  assert(retrievalMetadata, `${influenceCase.name}: retrieval metadata missing from influence audit.`);
+  assert(
+    retrievalMetadata.excluded?.some((exclusion) => exclusion.id === refs.memories.worker_weak_ranking_fit && exclusion.reason === "low_confidence"),
+    `${influenceCase.name}: low-confidence memory exclusion was not audited.`,
+  );
+  assert(
+    retrievalMetadata.excluded?.some((exclusion) => exclusion.id === refs.edges.baseline_low_score_site_fit && exclusion.reason === "low_temporal_score"),
+    `${influenceCase.name}: low-score temporal edge exclusion was not audited.`,
   );
   assertRefsPresent(
     influence.inputs?.memoryIds ?? [],

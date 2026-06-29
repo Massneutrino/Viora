@@ -8,7 +8,7 @@ import type {
   MemoryUseScope,
   MemoryVisibility,
 } from "@viora/domain";
-import { validateMemoryValue } from "@viora/domain";
+import { filterMemoryRetrieval, validateMemoryValue, type MemoryRetrievalMetadata } from "@viora/domain";
 import { createLLMClient } from "./llm.js";
 import type { AgentActionResult, MemoryAgent, MemoryContext, MemoryEventInput } from "./types.js";
 
@@ -142,12 +142,16 @@ function contextAudit(
   audience: MemoryAudience,
   entries: MemoryContext["entries"],
   edges: MemoryContext["edges"],
+  retrieval: MemoryRetrievalMetadata,
 ): MemoryContext["audit"] {
   return {
     purpose,
     audience,
-    memoryIds: entries.map((m) => m.id),
-    edgeIds: edges.map((e) => e.id),
+    memoryIds: retrieval.includedMemoryIds,
+    edgeIds: retrieval.includedEdgeIds,
+    includedMemoryIds: retrieval.includedMemoryIds,
+    includedEdgeIds: retrieval.includedEdgeIds,
+    excluded: retrieval.excluded,
     useScopes: uniqueScopes(entries.flatMap((m) => m.useScopes)),
   };
 }
@@ -158,11 +162,32 @@ function buildContext(
   entries: MemoryContext["entries"],
   edges: MemoryContext["edges"],
 ): MemoryContext {
+  const filtered = filterMemoryRetrieval({ entries, edges, purpose, audience });
+  return {
+    entries: filtered.entries,
+    edges: filtered.edges,
+    summary: summarizeContext(filtered.entries, filtered.edges),
+    audit: contextAudit(purpose, audience, filtered.entries, filtered.edges, filtered.metadata),
+  };
+}
+
+function buildCombinedContext(
+  purpose: MemoryUseScope,
+  audience: MemoryAudience,
+  contexts: MemoryContext[],
+): MemoryContext {
+  const entries = contexts.flatMap((context) => context.entries);
+  const edges = contexts.flatMap((context) => context.edges);
+  const retrieval: MemoryRetrievalMetadata = {
+    includedMemoryIds: entries.map((entry) => entry.id),
+    includedEdgeIds: edges.map((edge) => edge.id),
+    excluded: contexts.flatMap((context) => context.audit.excluded),
+  };
   return {
     entries,
     edges,
     summary: summarizeContext(entries, edges),
-    audit: contextAudit(purpose, audience, entries, edges),
+    audit: contextAudit(purpose, audience, entries, edges, retrieval),
   };
 }
 
@@ -712,7 +737,18 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
     },
 
     async recordInfluence(input) {
-      if (input.memoryIds.length === 0 && (input.edgeIds ?? []).length === 0) return;
+      const excluded = input.excluded ?? [];
+      if (input.memoryIds.length === 0 && (input.edgeIds ?? []).length === 0 && excluded.length === 0) return;
+      const retrievalMetadata = {
+        includedMemoryCount: input.memoryIds.length,
+        includedEdgeCount: input.edgeIds?.length ?? 0,
+        excludedCount: excluded.length,
+        excluded,
+      };
+      const metadata = {
+        ...(input.metadata ?? {}),
+        retrieval: retrievalMetadata,
+      };
       await writeMemoryAudit(
         db,
         "memory.influence",
@@ -726,13 +762,13 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           edgeIds: input.edgeIds ?? [],
           useScopes: input.useScopes,
           note: input.note ?? null,
-          metadata: input.metadata ?? null,
+          metadata,
         } as Prisma.InputJsonValue,
         {
           influencedAction: input.action,
           memoryCount: input.memoryIds.length,
           edgeCount: input.edgeIds?.length ?? 0,
-          metadata: input.metadata ?? null,
+          metadata,
         } as Prisma.InputJsonValue,
         input.outcome,
       );
@@ -862,9 +898,7 @@ export function createMemoryAgent(db: PrismaClient): MemoryAgent {
           siteId: offer.bookingRequest.siteId,
         }),
       ]);
-      const entries = [...worker.entries, ...organisation.entries];
-      const edges = [...worker.edges, ...organisation.edges];
-      return buildContext("explanation", audience, entries, edges);
+      return buildCombinedContext("explanation", audience, [worker, organisation]);
     },
   };
 }

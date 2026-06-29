@@ -199,6 +199,33 @@ The admin console includes a deterministic sandbox for demos and local testing:
 
 Sandbox booking requests are tagged in `BookingRequest.rawIntent` with `[sandbox:<runId>]`, and the run timeline is stored as `AuditEvent` rows with `entityType = SandboxRun`.
 
+### 0a. Ephemeral sandbox regression harness
+
+Use the CLI harness when you want a clean sandbox rooted in the current checkout rather than the shared local demo database:
+
+```bash
+# Fast disposable DB check: migrations + seed + report
+npm run test:sandbox -- --loops 0 --skip-baseline --seed 999
+
+# Full deterministic Phase 0 sandbox smoke in a disposable DB
+npm run test:sandbox:baseline
+
+# Live generated employer/V/worker loops; requires working AI provider/network access
+npm run test:sandbox:live
+```
+
+The harness creates `viora_sandbox_<seed>_<pid>`, applies Prisma migrations, seeds the latest demo avatars, runs the existing Phase 0 sandbox smoke unless `--skip-baseline` is passed, then runs generated employer/V/worker loops through live API routes. By default, generated employer requests are deterministic templates and V still parses them through the live LLM-backed intake path.
+
+Useful options:
+
+- `--loops <n>` controls generated loop count.
+- `--seed <number>` makes generated choices reproducible.
+- `--avatar-mode deterministic|llm` switches employer request generation; `llm` requires live AI access before V intake also runs.
+- `--report path/to/report.json` writes the structured pass/fail report.
+- `--keep-db` keeps the ephemeral database for inspection instead of dropping it.
+
+On failure, the harness always writes a structured JSON report. If `--report` is not provided, the default filename is `sandbox-regression-failure-<seed>-<pid>.json` and is ignored by git.
+
 ### 1. Rank candidates and broadcast offers
 ```bash
 # Rank eligible workers for the smoke booking

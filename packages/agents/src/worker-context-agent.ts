@@ -109,6 +109,7 @@ export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent):
             action: "offer.explain_fit",
             memoryIds: offerMemory.audit.memoryIds,
             edgeIds: offerMemory.audit.edgeIds,
+            excluded: offerMemory.audit.excluded,
             useScopes: offerMemory.audit.useScopes,
             outcome: "explanation_generated",
             note: "Worker-facing explanation may include the worker's own private profile memory.",

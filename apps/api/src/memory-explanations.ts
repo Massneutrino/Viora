@@ -1,5 +1,12 @@
 import type { PrismaClient } from "@viora/database";
-import { scoreTemporalMemoryEdges, type MemoryAudience, type MemoryEdge, type MemoryEntry, type MemoryUseScope } from "@viora/domain";
+import {
+  scoreTemporalMemoryEdges,
+  type MemoryAudience,
+  type MemoryEdge,
+  type MemoryEntry,
+  type MemoryRetrievalExclusion,
+  type MemoryUseScope,
+} from "@viora/domain";
 import type { MemoryAgent } from "@viora/agents";
 
 export type MemoryReason = {
@@ -61,7 +68,16 @@ export async function offerMemoryReasons(input: {
   offerId: string;
   audience: MemoryAudience;
   limit?: number;
-}): Promise<{ reasons: MemoryReason[]; audit: { purpose: MemoryUseScope; memoryIds: string[]; edgeIds: string[]; useScopes: MemoryUseScope[] } }> {
+}): Promise<{
+  reasons: MemoryReason[];
+  audit: {
+    purpose: MemoryUseScope;
+    memoryIds: string[];
+    edgeIds: string[];
+    excluded: MemoryRetrievalExclusion[];
+    useScopes: MemoryUseScope[];
+  };
+}> {
   const context = await input.memory.getOfferContext(input.offerId, { audience: input.audience });
   const reasons = [
     ...context.entries.filter((entry) => canShowMemory(entry, input.audience)).map(memoryReason),
@@ -73,6 +89,7 @@ export async function offerMemoryReasons(input: {
       purpose: context.audit.purpose,
       memoryIds: reasons.filter((reason) => reason.type === "memory").map((reason) => reason.id),
       edgeIds: reasons.filter((reason) => reason.type === "edge").map((reason) => reason.id),
+      excluded: context.audit.excluded,
       useScopes: context.audit.useScopes,
     },
   };

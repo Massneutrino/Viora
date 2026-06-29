@@ -338,7 +338,20 @@
       "purpose": "intake_default",
       "audience": "employer",
       "expectedMemoryRefs": ["org_active_instruction"],
-      "excludedMemoryRefs": ["org_expired_instruction", "org_wrong_scope_note"]
+      "excludedMemoryRefs": ["org_expired_instruction", "org_wrong_scope_note", "org_weak_intake_default"],
+      "expectedExcludedMemoryRefs": ["org_weak_intake_default"],
+      "expectedExcludedReasons": ["low_confidence"]
+    },
+    {
+      "name": "weak_only_intake_context_excludes_memory_so_v_must_ask",
+      "context": "weakOrganisation",
+      "purpose": "intake_default",
+      "audience": "employer",
+      "expectedMemoryRefs": [],
+      "excludedMemoryRefs": ["weak_org_only_intake_default"],
+      "expectedExcludedMemoryRefs": ["weak_org_only_intake_default"],
+      "expectedExcludedReasons": ["low_confidence"],
+      "expectedEmptySummary": true
     },
     {
       "name": "worker_ranking_excludes_private_and_profile_only_memory",
@@ -346,7 +359,10 @@
       "purpose": "ranking_signal",
       "audience": "employer",
       "expectedMemoryRefs": ["worker_operational_fit"],
-      "excludedMemoryRefs": ["worker_private_preference", "worker_profile_only_preference", "worker_expired_fit"]
+      "excludedMemoryRefs": ["worker_private_preference", "worker_profile_only_preference", "worker_expired_fit", "worker_weak_ranking_fit"],
+      "expectedExcludedMemoryRefs": ["worker_weak_ranking_fit"],
+      "expectedExcludedEdgeRefs": ["baseline_expired_site_fit", "baseline_low_score_site_fit"],
+      "expectedExcludedReasons": ["low_confidence", "expired", "low_temporal_score"]
     }
   ],
   "influenceCases": [

@@ -440,3 +440,4 @@ export * from "./phase0.js";
 export * from "./geo.js";
 export * from "./memory-values.js";
 export * from "./memory-scoring.js";
+export * from "./memory-retrieval.js";
