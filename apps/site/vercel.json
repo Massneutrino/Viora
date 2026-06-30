@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && npm install",
+  "installCommand": "cd ../.. && npm install --workspace=@viora/site --include-workspace-root",
   "buildCommand": "cd ../.. && npx turbo build --filter=@viora/site"
 }
