@@ -254,8 +254,36 @@ model Worker {
   offers         Offer[]
   bookings       Booking[]
   guardrailPolicy GuardrailPolicy?
+  availabilityBlocks WorkerAvailabilityBlock[]
+  availabilityPattern WorkerAvailabilityPattern?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+}
+
+model WorkerAvailabilityBlock {
+  id        String   @id @default(cuid())
+  workerId  String
+  worker    Worker   @relation(fields: [workerId], references: [id])
+  kind      String   @default("unavailable")
+  startAt   DateTime
+  endAt     DateTime
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workerId, startAt])
+  @@index([workerId, endAt])
+}
+
+model WorkerAvailabilityPattern {
+  workerId   String   @id
+  worker     Worker   @relation(fields: [workerId], references: [id])
+  timezone   String   @default("Europe/London")
+  daysOfWeek Int[]
+  startTime  String?
+  endTime    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Passport {

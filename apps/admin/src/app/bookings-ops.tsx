@@ -211,6 +211,33 @@ export function BookingsOps({
     }
   };
 
+  const monitorBooking = async (item: BookingOpsItem) => {
+    const key = `monitor:${item.id}`;
+    setBusyKey(key);
+
+    try {
+      const res = await fetch(`${API_URL}/v1/admin/bookings/${item.id}/monitor`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => null)) as {
+        explanation?: string;
+        error?: string;
+      } | null;
+      if (!res.ok) throw new Error(data?.error ?? data?.explanation ?? "Monitor check failed");
+      setBookings((prev) =>
+        prev.map((row) =>
+          row.id === item.id ? { ...row, status: "at_risk" } : row,
+        ),
+      );
+      setToast(data?.explanation ?? "Monitor check complete.");
+      await refresh();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Monitor check failed — check API connection.");
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const empty = unfilled.length === 0 && bookings.length === 0;
 
   if (empty) {
@@ -347,9 +374,11 @@ export function BookingsOps({
             {bookings.map((item) => {
               const cancelBusy = busyKey === `cancel:${item.id}`;
               const reopenBusy = busyKey === `reopen:${item.id}`;
-              const isBusy = cancelBusy || reopenBusy;
+              const monitorBusy = busyKey === `monitor:${item.id}`;
+              const isBusy = cancelBusy || reopenBusy || monitorBusy;
               const canCancel = !["cancelled", "completed"].includes(item.status);
               const canReopen = ["cancelled", "at_risk"].includes(item.status);
+              const canMonitor = ["confirmed", "in_progress", "at_risk"].includes(item.status);
 
               return (
                 <li
@@ -376,6 +405,16 @@ export function BookingsOps({
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                    {canMonitor && (
+                      <button
+                        type="button"
+                        onClick={() => monitorBooking(item)}
+                        disabled={isBusy}
+                        style={actionBtn("neutral", isBusy)}
+                      >
+                        Monitor
+                      </button>
+                    )}
                     {canCancel && (
                       <button
                         type="button"

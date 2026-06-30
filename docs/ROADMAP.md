@@ -8,6 +8,8 @@ See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 
 **Demo/testing support**: Admin includes a deterministic sandbox for replaying the Phase 0 loop with seeded avatars, clean reset, audit timeline and scenario coverage. `npm run test:phase0` runs the same API paths in-process as a close-out gate. The canonical Greenfield demo remains Standard Rate and is refreshed by seed data; Dynamic Rate is covered by a dedicated sandbox scenario with temporary L3 guardrails and seeded worker pay floors. Seeded operational fixtures keep employer/worker navigation populated, and apps display street/city/postcode while retaining coordinates internally for matching.
 
+**In-app scheduling**: Phase 0 includes a worker schedule, employer coverage schedule, and worker availability management. The schedule API accepts exact date/time ranges plus `granularity=day|hour`, merges bookings/offers/open requests/worker-owned unavailable blocks into a shared `ScheduleEvent` DTO, and keeps worker private availability out of employer responses. Google/Outlook/iCal sync remains Phase 1.
+
 **Pilot acquisition (adjunct, not a core Phase 0 item)**: the public site (`apps/site`) leads with a live V conversation that qualifies organisations vs workers and captures pilot/waitlist leads (`POST /v1/pilot/chat`, consent-gated, audited), with manual forms as fallback. V's spoken output is now routed through the backend voice provider layer (`/v1/voice/speech`) so ElevenLabs or OpenAI TTS can be selected server-side without rewriting React surfaces.
 
 **Viora Memory v0/v1 governance**: collect clean memory signals as a learning layer, not a major graph build. Phase 0 stores structured organisation defaults, site instructions, worker preferences, CPD/training taxonomy signals, booking outcomes, post-shift feedback signals, and reviewed procedural intake playbooks with use scopes, source/provenance, review-gated imports, influence audits, deletion controls, fixture-based evals, impact analytics, typed high-impact `MemoryEntry.value` conventions, audience-safe "why V used this memory" explanations, episodic learning projections, bounded temporal/evidence scoring on fit edges, retrieval thresholds with weak-memory fallback, admin-reviewed consolidation/post-shift suggestions, and a hard boundary between worker private memory and employer-facing ranking. See [`VIORA_MEMORY_DEEP_DIVE.md`](./VIORA_MEMORY_DEEP_DIVE.md).
@@ -18,6 +20,15 @@ See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 - Median time-to-fill ≤ 12 minutes
 - Fill rate ≥ 90%
 - Zero compliance errors (no ineligible worker placed)
+
+**Engineering close-out checklist** (before pilot go-live):
+- `npm run db:migrate && npm run db:seed`
+- `npm run typecheck && npm run build`
+- `npm run test:phase0` — sandbox scenarios, L1 approvals queue, schedule APIs, `booking.monitor`
+- `npm run test:memory && npm run test:memory:evals`
+- `npm run benchmark:intake -- --limit 10`
+
+Schedule **UI** tabs and Google/Outlook calendar sync are intentionally deferred: APIs ship in Phase 0; UI is in the schedule plan; external calendar OAuth is Phase 1.
 
 ---
 
@@ -37,6 +48,9 @@ Dynamic Rate is the Phase 1 rate mode alongside Standard Rate. Standard Rate bro
 
 **Memory Controls**
 Employer and worker screens show "what V remembers" with view, edit, archive/delete, source, scope, sensitivity, connector eligibility, typed-value context, expiry and private controls. Important inferred or imported memories are confirmed before V relies on them operationally. Worker offers and employer shortlists include audience-safe "why V used this memory" context, and admin review exposes episodes, graph edges, temporal influence evidence, review-gated consolidation suggestions, reviewed procedural intake playbooks, and post-shift briefing/fit learning suggestions. Live third-party memory connectors can start here, but must sit behind the Phase 0 review-gated import/export foundation.
+
+**External Calendar Sync**
+Google Calendar, Outlook/Microsoft Graph, and iCal subscribe/export build on the Phase 0 in-app schedule API. Phase 1 adds consent, token storage, duplicate prevention, deletion propagation, and tenant-scoped audit handling before any bidirectional sync.
 
 **V Workflow Playbooks**
 Admin V Workflows provides versioned, code-defined maps of V's agent interactions and deterministic simulation paths for intake, Passport onboarding, compliance document chase, offer explanation, replacement recovery, post-shift memory review, and Dynamic Rate escalation. This is documentation plus simulation in Phase 0/1: it does not publish live behavior. Future editable/publishable workflows must compile back into existing API/agent/domain services, preserve deterministic compliance and guardrails, and audit every operational action.

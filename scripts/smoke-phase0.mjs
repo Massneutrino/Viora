@@ -63,6 +63,26 @@ async function injectJson(app, method, url, payload) {
   return body;
 }
 
+async function injectExpect(app, method, url, payload, expectedStatus) {
+  const response = await app.inject({
+    method,
+    url,
+    payload,
+    headers: payload ? { "content-type": "application/json" } : undefined,
+  });
+  let body;
+  try {
+    body = response.json();
+  } catch {
+    body = response.body;
+  }
+  assert(
+    response.statusCode === expectedStatus,
+    `${method} ${url} expected ${expectedStatus}, got ${response.statusCode}: ${response.body}`,
+  );
+  return body;
+}
+
 function assertTimeline(result, requiredActions) {
   const seen = actions(result);
   for (const action of requiredActions) {
@@ -119,6 +139,50 @@ try {
   }
 
   await injectJson(app, "POST", "/v1/admin/sandbox/reset", {});
+
+  const guardrailBeforeApprovals = await app.db.guardrailPolicy.findUnique({
+    where: { organisationId: "demo-org" },
+    select: { autonomyLevel: true },
+  });
+  await app.db.guardrailPolicy.update({
+    where: { organisationId: "demo-org" },
+    data: { autonomyLevel: "L1" },
+  });
+
+  const queuedBroadcast = await injectExpect(
+    app,
+    "POST",
+    "/v1/bookings/demo-booking-request/broadcast",
+    {},
+    202,
+  );
+  assert(queuedBroadcast.requiresHumanApproval, "L1 broadcast should require human approval");
+  assert(queuedBroadcast.approval?.id, "L1 broadcast should return pending approval id");
+
+  const approvalsList = await injectJson(app, "GET", "/v1/admin/approvals");
+  assert(
+    approvalsList.approvals?.some((row) => row.id === queuedBroadcast.approval.id),
+    "queued approval missing from admin approvals list",
+  );
+
+  const approved = await injectJson(
+    app,
+    "POST",
+    `/v1/admin/approvals/${queuedBroadcast.approval.id}/approve`,
+    { adminId: "admin" },
+  );
+  assert(approved.execution?.success, `approval execution failed: ${approved.execution?.explanation ?? "unknown"}`);
+
+  const approvalOfferCount = await app.db.offer.count({
+    where: { bookingRequestId: "demo-booking-request" },
+  });
+  assertAtLeast(approvalOfferCount, 1, "approval broadcast offer count");
+
+  await app.db.guardrailPolicy.update({
+    where: { organisationId: "demo-org" },
+    data: { autonomyLevel: guardrailBeforeApprovals?.autonomyLevel ?? "L2" },
+  });
+  console.log("✓ approvals: L1 broadcast queued and approved");
 
   const expectations = [
     {
@@ -265,6 +329,78 @@ try {
   assert(workerOffer.offer.id, "worker offer DTO missing id");
   assert(workerOffer.offer.role, "worker offer DTO missing role");
   assert(typeof workerOffer.offer.payPerDay === "number", "worker offer DTO missing numeric payPerDay");
+
+  const scheduleFrom = new Date();
+  scheduleFrom.setDate(scheduleFrom.getDate() - 30);
+  const scheduleTo = new Date();
+  scheduleTo.setDate(scheduleTo.getDate() + 30);
+  const scheduleQuery = `from=${encodeURIComponent(scheduleFrom.toISOString())}&to=${encodeURIComponent(scheduleTo.toISOString())}`;
+  const workerSchedule = await injectJson(app, "GET", `/v1/workers/demo-worker/schedule?${scheduleQuery}&granularity=hour`);
+  assert(workerSchedule.events?.length > 0, "worker schedule returned no events");
+  assert(workerSchedule.events.some((event) => event.kind === "unavailable_block"), "worker schedule missing availability block");
+  assert(workerSchedule.hours?.length > 0, "worker hourly schedule missing hour buckets");
+
+  const orgSchedule = await injectJson(app, "GET", `/v1/organisations/demo-org/schedule?${scheduleQuery}&granularity=hour`);
+  assert(orgSchedule.events?.length > 0, "organisation schedule returned no events");
+  assert(
+    !orgSchedule.events.some((event) => event.kind === "unavailable_block"),
+    "organisation schedule leaked worker availability blocks",
+  );
+  assert(orgSchedule.hours?.length > 0, "organisation hourly schedule missing hour buckets");
+
+  const blockStart = new Date();
+  blockStart.setDate(blockStart.getDate() + 20);
+  blockStart.setUTCHours(10, 0, 0, 0);
+  const blockEnd = new Date(blockStart);
+  blockEnd.setUTCHours(12, 0, 0, 0);
+  const createdAvailability = await injectJson(app, "POST", "/v1/workers/demo-worker/availability/blocks", {
+    startAt: blockStart.toISOString(),
+    endAt: blockEnd.toISOString(),
+    note: "Smoke test unavailable block",
+  });
+  assert(createdAvailability.block?.id, "availability block create did not return an id");
+  await injectJson(app, "DELETE", `/v1/workers/demo-worker/availability/blocks/${createdAvailability.block.id}`);
+  const availabilityAuditEvents = await app.db.auditEvent.count({
+    where: {
+      entityType: "WorkerAvailabilityBlock",
+      action: { in: ["schedule.availability.block.create", "schedule.availability.block.delete"] },
+    },
+  });
+  assertAtLeast(availabilityAuditEvents, 2, "availability audit events");
+
+  const monitorTarget = await app.db.booking.findFirst({
+    where: { status: { in: ["confirmed", "in_progress", "at_risk"] } },
+    include: { shift: true },
+    orderBy: { createdAt: "desc" },
+  });
+  assert(monitorTarget?.shift, "monitor smoke: no booking with shift found");
+
+  const soonStart = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const soonEnd = new Date(soonStart.getTime() + 6 * 60 * 60 * 1000);
+  await app.db.booking.update({
+    where: { id: monitorTarget.id },
+    data: { startAt: soonStart, endAt: soonEnd, status: "confirmed" },
+  });
+  await app.db.shift.update({
+    where: { id: monitorTarget.shift.id },
+    data: {
+      status: "scheduled",
+      checkedInAt: null,
+      checkedOutAt: null,
+    },
+  });
+
+  const monitorResult = await injectJson(app, "POST", `/v1/admin/bookings/${monitorTarget.id}/monitor`);
+  assert(monitorResult.success, `monitor booking failed: ${monitorResult.explanation ?? "unknown"}`);
+
+  const monitoredBooking = await app.db.booking.findUnique({ where: { id: monitorTarget.id } });
+  assert(monitoredBooking?.status === "at_risk", "monitor did not mark booking at_risk");
+
+  const monitorAuditEvents = await app.db.auditEvent.count({
+    where: { action: "booking.monitor", entityId: monitorTarget.id },
+  });
+  assertAtLeast(monitorAuditEvents, 1, "booking.monitor audit events");
+  console.log("✓ monitor: booking marked at_risk with audit trail");
 
   const audit = await injectJson(app, "GET", "/v1/admin/audit");
   assertAtLeast(audit.events?.length ?? 0, 1, "admin audit events");

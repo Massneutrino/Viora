@@ -211,6 +211,35 @@ h1 {
   font-size: 0.85rem;
 }
 
+.vc-cta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.vc-cta-primary,
+.vc-cta-secondary {
+  min-height: 2.7rem;
+  padding: 0 1.3rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.vc-cta-primary {
+  border: none;
+  background: var(--ink);
+  color: #fff;
+}
+
+.vc-cta-secondary {
+  border: 0.5px solid #dde2e7;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+}
+
 .vc-linkbtn {
   border: none;
   background: none;
@@ -769,6 +798,13 @@ textarea:focus {
   color: #d23b2b;
 }
 
+.form-trust {
+  margin: -0.2rem 0 0;
+  text-align: center;
+  color: #8a8f98;
+  font-size: 0.74rem;
+}
+
 .eyebrow {
   margin: 0 0 0.6rem;
   color: #5a626d;
@@ -796,6 +832,14 @@ h2 {
 
 .memory-head {
   max-width: 42rem;
+}
+
+.memory-brand {
+  font-size: 1.16em;
+  font-weight: 800;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .memory-sub {

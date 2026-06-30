@@ -1,14 +1,17 @@
 # Phase 0 MVP — Engineering Backlog
 
-Maps to the 17 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
+Maps to the 20 items in `PHASE_0_MUST_HAVE` (`packages/domain/src/phase0.ts`).
 
 Legend: ✅ done · 🔜 in progress · 🔲 todo
 
-**Last reviewed:** 2026-06-29
+**Last reviewed:** 2026-06-30
 
-**Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
+**Remaining for Phase 0 close-out (2 schedule UI items):** Engineering close-out is complete for the core loop, guardrails, monitoring, and schedule APIs. Worker/employer schedule **UI tabs** remain in the parked schedule UI pass (`.cursor/plans/phase_0_schedule_system_8972282e.plan.md`). External Google/Outlook/iCal sync remains Phase 1.
 
 **Recent fixes (review follow-up):**
+- Phase 0 engineering close-out: `monitorBooking()` now marks bookings `at_risk` when a shift is within 4h or overdue without check-in (`packages/agents/src/employer-context-agent.ts`), exposed at `POST /v1/admin/bookings/:id/monitor` with admin **Monitor** action in `bookings-ops.tsx`, and covered by `npm run test:phase0` (`booking.monitor` audit + L1 approvals queue → approve → broadcast).
+- Human approval queue admin UI confirmed shipped — `apps/admin/src/app/approvals-queue.tsx` on the Ops tab (approve/reject + refresh); backlog entry corrected from stale "API-only".
+- Phase 0 schedule foundation added: shared schedule DTOs/helpers in `packages/domain/src/schedule.ts`, first-class worker availability blocks/patterns in Prisma, audited schedule/availability API routes under `/v1/workers/:id/schedule`, `/v1/organisations/:id/schedule`, and `/v1/workers/:id/availability/*`, seeded demo availability, hourly `granularity=hour` buckets, and `npm run test:phase0` smoke assertions. UI implementation is intentionally left for the schedule UI pass.
 - V Workflows milestone added as an admin-only, code-defined playbook viewer/simulator: shared workflow registry and validator in `packages/domain/src/workflows.ts`, read-only admin endpoints under `/v1/admin/v-workflows`, deterministic simulation with a single `workflow.simulate` audit event, Admin **V Workflows** tab with lightweight SVG/HTML graph rendering, and `npm run test:workflows` coverage. Live runtime orchestration remains unchanged.
 - MCP architecture decision documented: MCP is not a Phase 0 core architecture dependency; future MCP belongs behind a separate, permissioned edge gateway that delegates to existing API/agent/domain services and preserves audit, guardrail, compliance, and memory privacy boundaries.
 - Phase 0 close-out hardening completed: added `npm run test:phase0` (`scripts/smoke-phase0.mjs`) to run the API in-process and verify health, demo directory, all five sandbox scenarios, Dynamic Rate guardrail restore, worker offer DTOs, negotiations, and audit visibility.
@@ -113,6 +116,16 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Confirm mobile swipe accept/decline writes `Offer.status` to DB end-to-end — `apps/mobile/app/index.tsx` → `POST /v1/workers/:id/offers/:offerId/accept|decline`; accept declines competing offers atomically
 - ✅ Worker web preview (browser swipe deck) — `apps/worker-web` at http://localhost:6102; `npm run dev` starts it with api/web/admin; same `demo-worker` offer load + accept/decline API as mobile
 
+## Schedule
+
+- ✅ Worker schedule API — `GET /v1/workers/:id/schedule?from=&to=&granularity=day|hour` merges confirmed shifts, pending offers and the worker's own unavailable blocks into a shared `ScheduleEvent` contract.
+- ✅ Employer schedule API — `GET /v1/organisations/:id/schedule?from=&to=&siteId=&granularity=day|hour` returns filled shifts and open cover without exposing worker private availability.
+- ✅ Worker availability management API — pattern read/update plus audited create/edit/delete for unavailable blocks under `/v1/workers/:id/availability`.
+- ✅ Hourly timeframe support — schedule routes accept exact ISO datetimes and return hour buckets when `granularity=hour`; filtering uses overlap logic (`startAt < to && endAt > from`).
+- ✅ Seed + smoke coverage — seeded `demo-worker` availability blocks/pattern and `npm run test:phase0` assertions for worker schedule, employer schedule, hourly buckets, and availability audit events.
+- 🔲 Worker UI schedule tab — week strip + agenda + mark-unavailable flow, owned by the UI implementation pass.
+- 🔲 Employer UI schedule view — Bookings `List | Schedule` toggle with coverage-first agenda and site filters, owned by the UI implementation pass.
+
 ## Local dev surfaces (visual testing)
 
 | Surface | URL | Package |
@@ -138,7 +151,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 - ✅ Replace `stubEmployerContextAgent.triggerReplacement()` — on booking cancellation, rebroadcast to `backupWorkerIds` or fall back to ranked matching (`packages/agents/src/employer-context-agent.ts`)
 - ✅ Surface replacement alert in admin dashboard recovery activity — audit filter on `booking.cancel`, `booking.reopen`, `replacement.trigger` (`apps/admin/src/app/page.tsx`)
-- 🔲 `monitorBooking()` — still returns stub success; wire real at-risk detection (post-MVP follow-on)
+- ✅ `monitorBooking()` — deterministic at-risk detection when a confirmed shift is within 4h or overdue without check-in; writes `booking.monitor` audit rows; admin route `POST /v1/admin/bookings/:id/monitor` and Ops **Monitor** button (`packages/agents/src/employer-context-agent.ts`, `apps/api/src/routes/admin.ts`, `apps/admin/src/app/bookings-ops.tsx`)
 
 ## Timesheets & Invoices
 
@@ -149,7 +162,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 ## Guardrails
 
 - ✅ Backend guardrail enforcement — shared `evaluateGuardrailAction()` checks `autonomyLevel`, `budgetCeiling`, `payFloor`, and `approvedRoleTypes` before autonomous broadcast, assignment, replacement, and Dynamic Rate clearing.
-- ✅ Human approval queue API — `PendingApproval` persists queued actions; `GET /v1/admin/approvals`, `POST /v1/admin/approvals/:id/approve`, and `/reject` are API-only (no admin UI yet). Queued broadcast/assignment/replacement paths write `AuditEvent` rows with `outcome: "queued_for_approval"` and do not mutate booking/offer state before approval.
+- ✅ Human approval queue API + admin UI — `PendingApproval` persists queued actions; `GET /v1/admin/approvals`, `POST /v1/admin/approvals/:id/approve`, and `/reject`; Ops tab **Approvals** panel with approve/reject (`apps/admin/src/app/approvals-queue.tsx`). Queued broadcast/assignment/replacement paths write `AuditEvent` rows with `outcome: "queued_for_approval"` and do not mutate booking/offer state before approval. `npm run test:phase0` covers L1 broadcast queue → approve → offer creation.
 - 🔄 Dynamic Rate guardrails — Market Agent blocks Dynamic Rate below L3 into the approval queue and hard-blocks missing `maxPayRate`, missing worker pay floors, or floors above the employer ceiling. Full admin UI remains post-MVP polish.
 
 ## Audit Logging
@@ -171,7 +184,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Memory lab + review panels — create/edit/forget demo memories and confirm `pending_confirmation` entries (`apps/admin/src/app/{memory-lab,memory-review}.tsx`, `GET /v1/admin/memory/pending`)
 - ✅ Pilot leads tab — list waitlist leads and **Approve & mint** into real org/worker accounts (`apps/admin/src/app/pilot-approve.tsx`, `POST /v1/admin/pilot/leads/:id/approve`)
 - ✅ Dynamic Rate panel on ops dash — recent `NegotiationRecord` rows with floor/ceiling/rate (`GET /v1/admin/negotiations`, `apps/admin/src/app/sections.tsx`)
-- ✅ Admin mutation UI — compliance verify/reject, timesheet approve, booking broadcast/assign/cancel/reopen (`apps/admin/src/app/{compliance-queue,timesheets-queue,bookings-ops}.tsx`, `GET /v1/admin/timesheets/pending`, `GET /v1/admin/bookings/ops`)
+- ✅ Admin mutation UI — compliance verify/reject, timesheet approve, booking broadcast/assign/cancel/reopen/monitor (`apps/admin/src/app/{compliance-queue,timesheets-queue,bookings-ops}.tsx`, `GET /v1/admin/timesheets/pending`, `GET /v1/admin/bookings/ops`)
 
 ## WhatsApp Channel
 
@@ -187,6 +200,24 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - 🔲 **Gemini schema cleanup** — revisit `toGoogleSchema()` / `additionalProperties` stripping once on structured JSON Schema mode; may improve `requirements` extraction.
 
 **Interim (Phase 0):** use `AI_MODEL_INTENT` for accuracy-sensitive intake parsing and `AI_MODEL_FAST` for lower-latency prose tasks; leave `AI_MODEL` unset unless you intentionally want one global model for every LLM call.
+
+## Parked / post-close-out
+
+- 🔲 **Schedule UI** — worker Schedule tab + employer Bookings `List | Schedule` view (plan: `.cursor/plans/phase_0_schedule_system_8972282e.plan.md`). Schedule/availability **APIs and smoke coverage are shipped**.
+- 🔲 **Calendar OAuth / iCal sync** — Phase 1 (Google Calendar, Outlook); subscribe export builds on the existing `ScheduleEvent` mapper.
+- 🔲 **Optional LLM providers** — OpenAI provider extension; Gemini structured-schema cleanup.
+
+## Pilot go-live checklist (operational)
+
+| Metric | Target | How to measure |
+|--------|--------|----------------|
+| Conversational intake | ≥70% | `BookingRequest.channel` / `Conversation` rows |
+| Intent accuracy | ≥95% | `npm run benchmark:intake` on pilot sample set |
+| Median time-to-fill | ≤12 min | `BookingRequest.createdAt` → `Booking.createdAt` |
+| Fill rate | ≥90% | Filled vs total requests in cluster window |
+| Compliance errors | 0 | No ineligible worker on `Booking` (deterministic gate) |
+
+Pilot parameters: 3–10 schools, 50–200 workers, manual compliance queue, export-only payroll — per `packages/domain/src/phase0.ts`.
 
 ---
 

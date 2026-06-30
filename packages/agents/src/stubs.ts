@@ -37,12 +37,12 @@ export const stubEmployerContextAgent: EmployerContextAgent = {
       auditPayload: { agent: "employer_context", action: "process_request" },
     };
   },
-  async monitorBooking() {
+  async monitorBooking(bookingId: string) {
     return {
       success: true,
       explanation: "Booking monitored.",
       requiresHumanApproval: false,
-      auditPayload: { agent: "employer_context", action: "monitor" },
+      auditPayload: { agent: "employer_context", action: "monitor", bookingId },
     };
   },
   async triggerReplacement() {

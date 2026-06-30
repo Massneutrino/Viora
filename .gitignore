@@ -40,10 +40,12 @@ Thumbs.db
 .codex/logs/
 .codex/tmp/
 .codex-run/
+.codex-remote-attachments/
 
 # Testing
 coverage/
 sandbox-regression-failure-*.json
+sandbox-output-preview.png
 
 # Uploaded compliance documents (local storage)
 uploads/

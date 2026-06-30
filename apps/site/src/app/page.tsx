@@ -171,7 +171,7 @@ export default function PilotPage() {
         </a>
         <nav aria-label="Site navigation">
           <a className="sign-in" href="/register">
-            Sign in
+            Request access
           </a>
         </nav>
       </header>
@@ -179,9 +179,9 @@ export default function PilotPage() {
       <section className="hero" id="talk-to-v">
         <div className="hero-heading">
           <span className="hero-eyebrow">
-            <Icon name="cap" /> Starting with education
+            <Icon name="cap" /> Flexible staffing — starting with education
           </span>
-          <h1>Tell V. Fill the shift.</h1>
+          <h1>Tell V. Fill the shift. Find work.</h1>
           <p className="hero-typewriter">
             &ldquo;{typed}
             <span className="tw-caret">▍</span>&rdquo;
@@ -207,7 +207,7 @@ export default function PilotPage() {
             id="organisations"
             icon={<Icon name="building" />}
             title="For organisations"
-            copy="Real-time cover. Full compliance. Lower costs."
+            copy="Real-time cover. Fully compliant. Lower cost."
             action="I'm hiring"
             primary
             onClick={() => seedConversation("I need to fill shifts")}
@@ -216,7 +216,7 @@ export default function PilotPage() {
             id="workers"
             icon={<Icon name="person" />}
             title="For workers"
-            copy="Better shifts. Fair pay. More control."
+            copy="Better shifts. Fair pay. You're in control."
             action="I want work"
             onClick={() => seedConversation("I'm looking for work")}
           />
@@ -224,9 +224,9 @@ export default function PilotPage() {
 
         <div className="proof-strip" aria-label="Viora operating principles">
           <ProofItem icon={<Icon name="money" />} title="Lower agency overhead" copy="Keep more of your budget" />
-          <ProofItem icon={<Icon name="trend" />} title="More value for workers" copy="Better pay. Better matches" />
+          <ProofItem icon={<Icon name="trend" />} title="Better for workers" copy="Fairer pay, better-fit shifts" />
           <ProofItem icon={<Icon name="shield" />} title="Always compliant" copy="Checks built in, always on" />
-          <ProofItem icon={<Icon name="lock" />} title="Every action audited" copy="Complete visibility and trust" />
+          <ProofItem icon={<Icon name="lock" />} title="Every action audited" copy="Full visibility, end to end" />
         </div>
       </section>
 

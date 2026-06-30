@@ -738,6 +738,24 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return { bookings };
   });
 
+  /** POST /v1/admin/bookings/:id/monitor — deterministic at-risk check for upcoming shifts. */
+  app.post("/bookings/:id/monitor", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const existing = await app.db.booking.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: "Booking not found." });
+
+    const result = await app.agents.employer.monitorBooking(id);
+    if (!result.success) {
+      return reply.code(409).send({
+        success: false,
+        explanation: result.explanation,
+        auditPayload: result.auditPayload,
+      });
+    }
+
+    return reply.send(result);
+  });
+
   /** POST /v1/admin/timesheets/:id/approve */
   app.post("/timesheets/:id/approve", async (request, reply) => {
     const { id } = request.params as { id: string };

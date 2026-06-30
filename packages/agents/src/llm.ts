@@ -66,10 +66,16 @@ function isGoogleThinkingModel(model: string): boolean {
   return /gemini-2\.5|gemini-3/i.test(model);
 }
 
+/** Pro-tier Gemini models reject thinkingBudget 0 and require a positive budget. */
+function googleThinkingBudget(model: string): number {
+  if (/gemini-2\.5-pro|gemini-3-pro/i.test(model)) return 1024;
+  return 0;
+}
+
 function googleTextGenerationConfig(model: string, maxTokens: number): Record<string, unknown> {
   const config: Record<string, unknown> = { maxOutputTokens: maxTokens };
   if (isGoogleThinkingModel(model)) {
-    config.thinkingConfig = { thinkingBudget: 0 };
+    config.thinkingConfig = { thinkingBudget: googleThinkingBudget(model) };
     config.maxOutputTokens = Math.max(maxTokens, 1024);
   }
   return config;
@@ -78,7 +84,7 @@ function googleTextGenerationConfig(model: string, maxTokens: number): Record<st
 function googleStructuredGenerationConfig(model: string, maxTokens: number): Record<string, unknown> {
   const config: Record<string, unknown> = { maxOutputTokens: Math.max(maxTokens, 4096) };
   if (isGoogleThinkingModel(model)) {
-    config.thinkingConfig = { thinkingBudget: 0 };
+    config.thinkingConfig = { thinkingBudget: googleThinkingBudget(model) };
   }
   return config;
 }

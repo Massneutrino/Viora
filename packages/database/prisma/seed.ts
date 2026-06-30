@@ -732,6 +732,63 @@ async function refreshDemoOperationalFixtures() {
   await refreshDemoMemories();
 }
 
+async function refreshDemoScheduleAvailability() {
+  const tomorrowUnavailableStart = demoDate(2, 16, 0);
+  const tomorrowUnavailableEnd = demoDate(2, 18, 0);
+  const nextWeekUnavailableStart = demoDate(8, 9, 0);
+  const nextWeekUnavailableEnd = demoDate(8, 12, 0);
+
+  await prisma.workerAvailabilityPattern.upsert({
+    where: { workerId: "demo-worker" },
+    update: {
+      timezone: "Europe/London",
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: "08:00",
+      endTime: "17:00",
+    },
+    create: {
+      workerId: "demo-worker",
+      timezone: "Europe/London",
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: "08:00",
+      endTime: "17:00",
+    },
+  });
+
+  await Promise.all([
+    prisma.workerAvailabilityBlock.upsert({
+      where: { id: "demo-availability-alex-after-school" },
+      update: {
+        startAt: tomorrowUnavailableStart,
+        endAt: tomorrowUnavailableEnd,
+        note: "After-school appointment",
+      },
+      create: {
+        id: "demo-availability-alex-after-school",
+        workerId: "demo-worker",
+        startAt: tomorrowUnavailableStart,
+        endAt: tomorrowUnavailableEnd,
+        note: "After-school appointment",
+      },
+    }),
+    prisma.workerAvailabilityBlock.upsert({
+      where: { id: "demo-availability-alex-training" },
+      update: {
+        startAt: nextWeekUnavailableStart,
+        endAt: nextWeekUnavailableEnd,
+        note: "CPD training",
+      },
+      create: {
+        id: "demo-availability-alex-training",
+        workerId: "demo-worker",
+        startAt: nextWeekUnavailableStart,
+        endAt: nextWeekUnavailableEnd,
+        note: "CPD training",
+      },
+    }),
+  ]);
+}
+
 async function main() {
   const educationRoles = [
     "supply_teacher",
@@ -1335,6 +1392,7 @@ async function main() {
     offerExpiresAt: offerExpiry,
   });
   await refreshDemoOperationalFixtures();
+  await refreshDemoScheduleAvailability();
 
   console.log("Seed complete:", {
     organisations: [

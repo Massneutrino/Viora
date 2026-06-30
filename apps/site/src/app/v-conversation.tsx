@@ -282,20 +282,27 @@ export const VConversation = forwardRef<
     }
   }, [seed, started, send]);
 
-  // Resting state — the orb is the call-to-action; this is just a nudge + fallbacks.
+  // Resting state — voice (orb / "Talk to V") and text ("Type to V") are equal
+  // entry points; the quick form is the low-friction fallback.
   if (!started) {
     return (
       <div className="vc-cta">
-        <p className="vc-nudge">Tap V to speak</p>
+        <p className="vc-nudge">Tell V what you need</p>
         <p className="vc-cta-sub">Find cover or find work — V gets you set up in minutes.</p>
-        <p className="vc-cta-alt">
-          Prefer to type, or not now?{" "}
-          <button type="button" className="vc-linkbtn" onClick={() => start(false)}>
+        <div className="vc-cta-actions">
+          <button type="button" className="vc-cta-primary" onClick={() => start(false)}>
             Type to V
-          </button>{" "}
-          or{" "}
+          </button>
+          {speechSupported && (
+            <button type="button" className="vc-cta-secondary" onClick={() => start(true)}>
+              Talk to V
+            </button>
+          )}
+        </div>
+        <p className="vc-cta-alt">
+          Prefer not to chat?{" "}
           <button type="button" className="vc-linkbtn" onClick={() => onOpenForm?.()}>
-            use a quick form
+            Use a quick form
           </button>
           .
         </p>

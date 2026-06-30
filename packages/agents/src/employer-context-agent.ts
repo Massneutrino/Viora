@@ -9,6 +9,9 @@ const BOOKABLE_REQUEST_STATUSES = new Set([
   "broadcasting",
 ]);
 const REASSIGNABLE_BOOKING_STATUSES = new Set(["cancelled", "at_risk"]);
+const MONITOR_AT_RISK_HOURS = 4;
+const MONITOR_TERMINAL_STATUSES = new Set(["cancelled", "completed"]);
+const MONITOR_PRE_CHECKIN_SHIFT_STATUSES = new Set(["scheduled", "pre_shift_check"]);
 
 export function createEmployerContextAgent(
   db: PrismaClient,
@@ -352,12 +355,127 @@ export function createEmployerContextAgent(
       };
     },
 
-    async monitorBooking() {
+    async monitorBooking(bookingId: string) {
+      const inputs = { bookingId } as Prisma.InputJsonValue;
+      const booking = await db.booking.findUnique({
+        where: { id: bookingId },
+        include: { shift: true },
+      });
+
+      if (!booking) {
+        const explanation = "Booking not found.";
+        await auditFailure("booking.monitor", "Booking", bookingId, inputs, explanation);
+        return {
+          success: false,
+          explanation,
+          requiresHumanApproval: false,
+          auditPayload: { bookingId, error: "not_found" },
+        };
+      }
+
+      if (MONITOR_TERMINAL_STATUSES.has(booking.status)) {
+        const explanation = `Booking is ${booking.status}; monitoring skipped.`;
+        await db.auditEvent.create({
+          data: {
+            actorType: "agent",
+            actorId: "employer_context",
+            action: "booking.monitor",
+            entityType: "Booking",
+            entityId: bookingId,
+            inputs,
+            outputs: { status: booking.status, outcome: "skipped" } as Prisma.InputJsonValue,
+            outcome: "skipped",
+          },
+        });
+        return {
+          success: false,
+          explanation,
+          requiresHumanApproval: false,
+          auditPayload: { bookingId, status: booking.status, outcome: "skipped" },
+        };
+      }
+
+      const now = Date.now();
+      const hoursUntilStart = (booking.startAt.getTime() - now) / (60 * 60 * 1000);
+      const shift = booking.shift;
+      const awaitingCheckIn =
+        Boolean(shift) &&
+        !shift!.checkedInAt &&
+        MONITOR_PRE_CHECKIN_SHIFT_STATUSES.has(shift!.status);
+      const shouldMarkAtRisk =
+        awaitingCheckIn &&
+        (hoursUntilStart <= MONITOR_AT_RISK_HOURS || booking.startAt.getTime() <= now);
+
+      if (shouldMarkAtRisk) {
+        const previousStatus = booking.status;
+        if (previousStatus !== "at_risk") {
+          await db.booking.update({
+            where: { id: bookingId },
+            data: { status: "at_risk" },
+          });
+        }
+
+        await db.auditEvent.create({
+          data: {
+            actorType: "agent",
+            actorId: "employer_context",
+            action: "booking.monitor",
+            entityType: "Booking",
+            entityId: bookingId,
+            inputs,
+            outputs: {
+              previousStatus,
+              status: "at_risk",
+              hoursUntilStart: Number(hoursUntilStart.toFixed(2)),
+              shiftStatus: shift?.status ?? null,
+              outcome: "at_risk",
+            } as Prisma.InputJsonValue,
+            outcome: "at_risk",
+          },
+        });
+
+        return {
+          success: true,
+          explanation:
+            previousStatus === "at_risk"
+              ? "Booking already at_risk — worker has not checked in."
+              : "Booking marked at_risk — worker has not checked in.",
+          requiresHumanApproval: false,
+          auditPayload: {
+            bookingId,
+            status: "at_risk",
+            hoursUntilStart: Number(hoursUntilStart.toFixed(2)),
+          },
+        };
+      }
+
+      await db.auditEvent.create({
+        data: {
+          actorType: "agent",
+          actorId: "employer_context",
+          action: "booking.monitor",
+          entityType: "Booking",
+          entityId: bookingId,
+          inputs,
+          outputs: {
+            status: booking.status,
+            hoursUntilStart: Number(hoursUntilStart.toFixed(2)),
+            shiftStatus: shift?.status ?? null,
+            outcome: "healthy",
+          } as Prisma.InputJsonValue,
+          outcome: "healthy",
+        },
+      });
+
       return {
         success: true,
-        explanation: "Booking monitored.",
+        explanation: "Booking monitored — healthy.",
         requiresHumanApproval: false,
-        auditPayload: { agent: "employer_context", action: "monitor" },
+        auditPayload: {
+          bookingId,
+          status: booking.status,
+          outcome: "healthy",
+        },
       };
     },
 

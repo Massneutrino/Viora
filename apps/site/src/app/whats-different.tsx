@@ -74,10 +74,13 @@ export function WhatsDifferent() {
     <section className="memory" id="memory">
       <div className="memory-head">
         <p className="eyebrow">What makes Viora different</p>
-        <h2>The agency, run by AI.</h2>
+        <h2>
+          <span className="memory-brand">Viora</span> — the only agency you need.
+        </h2>
         <p className="memory-sub">
-          An agent works each side, and a market between them lands the fair, compliant match — V
-          remembers what it learns along the way.
+          AI agents working for each side find, match and negotiate the best outcomes to benefit
+          organisations and workers. Viora Memory powers the pool, learning each side&apos;s
+          preferences and ensuring well-placed, timely cover. Fair and compliant at all times.
         </p>
       </div>
 
