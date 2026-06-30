@@ -30,6 +30,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace", "@viora/site", "--", "--port", "6113"],
       "port": 6113
+    },
+    {
+      "name": "viora-site-preview-2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@viora/site", "--", "--port", "6124"],
+      "port": 6124
     }
   ]
 }

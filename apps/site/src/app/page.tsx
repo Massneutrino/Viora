@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { PixelRings, PixelSphere, Wordmark, type WaveState } from "@viora/ui";
 import { VConversation, type VConversationHandle } from "./v-conversation";
-import { QuickFormModal } from "./quick-form";
-import { WhatsDifferent } from "./whats-different";
+
+// Code-split the below-the-fold section and the click-gated modal so they leave
+// the initial bundle — the hero hydrates (and the sphere settles) sooner.
+const WhatsDifferent = dynamic(() => import("./whats-different").then((m) => m.WhatsDifferent));
+const QuickFormModal = dynamic(() => import("./quick-form").then((m) => m.QuickFormModal), {
+  ssr: false,
+});
 
 type LeadType = "employer" | "worker";
 
@@ -150,14 +156,19 @@ function ProofItem({ icon, title, copy }: { icon: ReactNode; title: string; copy
 export default function PilotPage() {
   const [waveState, setWaveState] = useState<WaveState>("rest");
   const [formOpen, setFormOpen] = useState(false);
+  const [formMounted, setFormMounted] = useState(false);
   const [formType, setFormType] = useState<LeadType>("employer");
   const typed = useTypewriter(EXAMPLES);
   const vcRef = useRef<VConversationHandle>(null);
 
   const openForm = (type: LeadType) => {
     setFormType(type);
+    setFormMounted(true);
     setFormOpen(true);
   };
+
+  // Stagger above-the-fold elements into view on first paint.
+  const reveal = (delay: number): CSSProperties => ({ "--reveal-delay": `${delay}ms` } as CSSProperties);
 
   return (
     <main className="pilot-page">
@@ -175,19 +186,19 @@ export default function PilotPage() {
 
       <section className="hero" id="talk-to-v">
         <div className="hero-heading">
-          <span className="hero-eyebrow">
+          <span className="hero-eyebrow reveal" style={reveal(0)}>
             <Icon name="cap" /> Flexible staffing — starting with education
           </span>
-          <h1>
+          <h1 className="reveal" style={reveal(70)}>
             Tell V.<br />Fill Shifts. Find Work.
           </h1>
-          <p className="hero-typewriter">
+          <p className="hero-typewriter reveal" style={reveal(140)}>
             &ldquo;{typed}
             <span className="tw-caret">▍</span>&rdquo;
           </p>
         </div>
 
-        <div className="v-stage">
+        <div className="v-stage reveal" style={reveal(210)}>
           <PixelRings state={waveState} centerY={150} innerRadius={86} intensity={0.08} />
           <div className="sphere-wrap">
             <PixelSphere
@@ -201,7 +212,7 @@ export default function PilotPage() {
 
         <VConversation ref={vcRef} onStateChange={setWaveState} onOpenForm={() => openForm("employer")} />
 
-        <div className="audience-grid">
+        <div className="audience-grid reveal" style={reveal(280)}>
           <AudienceCard
             id="organisations"
             icon={<Icon name="building" />}
@@ -218,7 +229,7 @@ export default function PilotPage() {
           />
         </div>
 
-        <div className="proof-strip" aria-label="Viora operating principles">
+        <div className="proof-strip reveal" style={reveal(350)} aria-label="Viora operating principles">
           <ProofItem icon={<Icon name="money" />} title="Lower agency overhead" copy="Keep more of your budget" />
           <ProofItem icon={<Icon name="trend" />} title="Better for workers" copy="Fairer pay, better-fit shifts" />
           <ProofItem icon={<Icon name="shield" />} title="Always compliant" copy="Checks built in, always on" />
@@ -242,7 +253,9 @@ export default function PilotPage() {
         <small>© {2026} Viora</small>
       </footer>
 
-      <QuickFormModal open={formOpen} initialType={formType} onClose={() => setFormOpen(false)} />
+      {formMounted && (
+        <QuickFormModal open={formOpen} initialType={formType} onClose={() => setFormOpen(false)} />
+      )}
     </main>
   );
 }

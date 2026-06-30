@@ -1554,3 +1554,73 @@ h2 {
     min-height: 13rem;
   }
 }
+
+/* ---- First-paint choreography ----
+   A one-shot fade-up for above-the-fold hero elements (staggered via
+   --reveal-delay), a soft glow that keeps the sphere's slot "alive" until the
+   canvas paints, and a gentle page-enter fade for the secondary routes. All of
+   it is disabled under prefers-reduced-motion below. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal {
+  opacity: 0;
+  animation: reveal-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--reveal-delay, 0ms);
+}
+
+/* Soft placeholder behind the canvas sphere — fades out as the sphere wakes,
+   so the centerpiece's slot is never a blank hole on first paint. */
+.sphere-wrap::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150px;
+  height: 150px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(31, 77, 255, 0.1), transparent 70%);
+  animation: sphere-wake 0.7s ease-out 0.15s both;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes sphere-wake {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Page-enter fade for navigations into the secondary routes (home keeps its
+   richer staggered reveal above). */
+.reg-page,
+.legal-page {
+  animation: reveal-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+    opacity: 1;
+  }
+  .sphere-wrap::before {
+    animation: none;
+    opacity: 0;
+  }
+  .reg-page,
+  .legal-page {
+    animation: none;
+  }
+}

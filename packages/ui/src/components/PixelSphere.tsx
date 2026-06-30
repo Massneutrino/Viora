@@ -87,6 +87,7 @@ export function PixelSphere({
       }
 
     let raf = 0
+    let running = false
     let active = 0, morph = 0, t0: number | null = null
 
     const draw = (ts: number) => {
@@ -160,10 +161,40 @@ export function PixelSphere({
         ctx.fillStyle = `rgb(${Math.min(255, r | 0)},${Math.min(255, g | 0)},${Math.min(255, b | 0)})`
         ctx.fillRect(dt.x - lx * off - sz / 2, dt.y - ly * off - sz / 2, sz, sz)
       }
-      if (!staticMark) raf = requestAnimationFrame(draw)
+      if (!staticMark && running) raf = requestAnimationFrame(draw)
     }
-    raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
+
+    const start = () => {
+      if (running) return
+      running = true
+      raf = requestAnimationFrame(draw)
+    }
+    const stop = () => {
+      running = false
+      cancelAnimationFrame(raf)
+    }
+
+    // Gate the loop on visibility: it won't start until the canvas is in view
+    // (so it doesn't compete with first-paint hydration before it's even seen),
+    // and it pauses when scrolled off-screen instead of burning frames.
+    let io: IntersectionObserver | null = null
+    if (typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) start()
+          else stop()
+        },
+        { threshold: 0 },
+      )
+      io.observe(canvas)
+    } else {
+      start()
+    }
+
+    return () => {
+      stop()
+      io?.disconnect()
+    }
   }, [size, staticMark])
 
   return (
