@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AppShell, PixelSphere, SectionCard, SettingRow, EditableField, ChipsField, AccountRow, Avatar,
-  type WaveState, type NavItem, type PreviewMode,
+  startVoiceCapture, type VoiceCaptureController, type WaveState, type NavItem, type PreviewMode,
 } from "@viora/ui"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200"
@@ -555,7 +555,7 @@ function EmployerAppInner() {
   const [preview, setPreview] = useState<PreviewMode>("auto")
 
   const endRef = useRef<HTMLDivElement>(null)
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<VoiceCaptureController | null>(null)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
 
@@ -598,28 +598,26 @@ function EmployerAppInner() {
 
   // Tap the sphere to talk; auto-stops on silence, hard 30s safety cap.
   const startListening = useCallback(() => {
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
-    if (!SR) { alert("Voice input requires Chrome or Edge. You can type instead."); return }
-    const rec = new SR()
-    rec.continuous = false
-    rec.interimResults = false
-    rec.lang = "en-GB"
-    recognitionRef.current = rec
-    const cap = setTimeout(() => { try { rec.stop() } catch {} }, 30000)
-    rec.onstart = () => { setIsListening(true); setWaveState("listening") }
-    rec.onresult = (e: any) => submit(e.results[0][0].transcript)
-    rec.onerror = () => { setIsListening(false); setWaveState("rest") }
-    rec.onend = () => {
-      clearTimeout(cap)
-      setIsListening(false)
-      recognitionRef.current = null
-      setWaveState(s => (s === "listening" ? "rest" : s))
-    }
-    rec.start()
+    void startVoiceCapture({
+      apiUrl: API_URL,
+      onStart: () => { setIsListening(true); setWaveState("listening") },
+      onStop: () => {
+        setIsListening(false)
+        recognitionRef.current = null
+        setWaveState(s => (s === "listening" ? "rest" : s))
+      },
+      onTranscript: ({ text }) => submit(text),
+      onError: () => {
+        setIsListening(false)
+        setWaveState("rest")
+      },
+    }).then(controller => {
+      recognitionRef.current = controller
+    })
   }, [submit])
 
   const toggleMic = useCallback(() => {
-    if (isListening) { try { recognitionRef.current?.stop() } catch {} }
+    if (isListening) { recognitionRef.current?.stop() }
     else startListening()
   }, [isListening, startListening])
 

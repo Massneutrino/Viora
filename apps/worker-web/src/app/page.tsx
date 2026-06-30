@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AppShell, SectionCard, SettingRow, EditableField, ChipsField, ToggleRow, AccountRow, Avatar,
-  type WaveState, type NavItem, type PreviewMode,
+  startVoiceCapture, type VoiceCaptureController, type WaveState, type NavItem, type PreviewMode,
 } from "@viora/ui"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200"
@@ -92,6 +92,11 @@ type Offer = {
     visibility: string
     sourceLabel?: string | null
   }>
+}
+
+type WorkerVoicePendingAction = {
+  type: "accept_offer" | "decline_offer"
+  offerId: string
 }
 
 type WorkerShiftData = {
@@ -679,10 +684,11 @@ function WorkerAppInner() {
   const [loading, setLoading] = useState(false)
   const [acting, setActing] = useState(false)
   const [message, setMessage] = useState("")
+  const [pendingVoiceAction, setPendingVoiceAction] = useState<WorkerVoicePendingAction | null>(null)
   const [activeTab, setActiveTab] = useState("deck")
   const [waveState, setWaveState] = useState<WaveState>("rest")
   const [preview, setPreview] = useState<PreviewMode>("auto")
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<VoiceCaptureController | null>(null)
 
   const fetchOffer = useCallback(async () => {
     setLoading(true)
@@ -701,6 +707,7 @@ function WorkerAppInner() {
   useEffect(() => {
     setOffer(null)
     setMessage("")
+    setPendingVoiceAction(null)
   }, [workerId])
 
   useEffect(() => { fetchOffer() }, [fetchOffer])
@@ -711,6 +718,7 @@ function WorkerAppInner() {
     try {
       await fetch(`${API_URL}/v1/workers/${workerId}/offers/${offer.id}/${action}`, { method: "POST" })
       setMessage(action === "accept" ? "Shift accepted! Pre-shift briefing on the way." : "Passed — finding your next match…")
+      setPendingVoiceAction(null)
       setOffer(null)
       if (action === "decline") setTimeout(fetchOffer, 1200)
     } catch {
@@ -720,25 +728,63 @@ function WorkerAppInner() {
     }
   }, [offer, fetchOffer, workerId])
 
+  const submitVoiceCommand = useCallback(async (transcript: string) => {
+    const text = transcript.trim()
+    if (!text || loading || acting) return
+    setWaveState("processing")
+    setMessage(`Heard: "${text}"`)
+    try {
+      const res = await fetch(`${API_URL}/v1/workers/${workerId}/voice/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: text,
+          pendingAction: pendingVoiceAction ?? undefined,
+        }),
+      })
+      const data = await res.json().catch(() => null) as {
+        reply?: string
+        requiresConfirmation?: boolean
+        pendingAction?: WorkerVoicePendingAction | null
+        actionExecuted?: boolean
+      } | null
+      if (!res.ok || !data) {
+        setMessage("V could not handle that voice command.")
+        setWaveState("rest")
+        return
+      }
+      setMessage(data.reply ?? "V heard you.")
+      setPendingVoiceAction(data.requiresConfirmation ? data.pendingAction ?? null : null)
+      if (data.actionExecuted) {
+        setOffer(null)
+        setTimeout(fetchOffer, 1200)
+      }
+      setWaveState("speaking")
+      setTimeout(() => setWaveState("rest"), 1800)
+    } catch {
+      setMessage("V is unreachable - please try again or use the buttons.")
+      setWaveState("rest")
+    }
+  }, [acting, fetchOffer, loading, pendingVoiceAction, workerId])
+
   // Tap the sphere to talk to V; auto-stops on silence, 30s cap.
   const startListening = useCallback(() => {
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
-    if (!SR) { alert("Voice input requires Chrome or Edge."); return }
-    const rec = new SR()
-    rec.continuous = false
-    rec.interimResults = false
-    rec.lang = "en-GB"
-    recognitionRef.current = rec
-    const cap = setTimeout(() => { try { rec.stop() } catch {} }, 30000)
-    rec.onstart = () => setWaveState("listening")
-    rec.onresult = () => { setWaveState("speaking"); setTimeout(() => setWaveState("rest"), 1800) }
-    rec.onerror = () => setWaveState("rest")
-    rec.onend = () => { clearTimeout(cap); recognitionRef.current = null; setWaveState(s => (s === "listening" ? "rest" : s)) }
-    rec.start()
-  }, [])
+    void startVoiceCapture({
+      apiUrl: API_URL,
+      onStart: () => setWaveState("listening"),
+      onStop: () => {
+        recognitionRef.current = null
+        setWaveState(s => (s === "listening" ? "rest" : s))
+      },
+      onTranscript: ({ text }) => void submitVoiceCommand(text),
+      onError: () => setWaveState("rest"),
+    }).then(controller => {
+      recognitionRef.current = controller
+    })
+  }, [submitVoiceCommand])
 
   const toggleMic = useCallback(() => {
-    if (waveState === "listening") { try { recognitionRef.current?.stop() } catch {} }
+    if (waveState === "listening") { recognitionRef.current?.stop() }
     else startListening()
   }, [waveState, startListening])
 

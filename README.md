@@ -83,17 +83,23 @@ Phase 0 runs at autonomy levels L1–L2. All agent actions are auditable; human 
 
 ## Voice provider
 
-V's reasoning and V's spoken voice are separate layers. Agent text generation uses `createLLMClient()`;
-speech uses the backend voice provider layer so browser code never calls ElevenLabs or OpenAI directly.
+V's reasoning, hearing and spoken voice are separate layers. Agent text generation uses
+`createLLMClient()` (`AI_PROVIDER` / `AI_MODEL*`); speech-to-text and text-to-speech use the
+backend voice provider layer so browser code never calls ElevenLabs, OpenAI or Azure directly.
 
 | Capability | Route | Default |
 |------------|-------|---------|
+| Voice status | `GET /v1/voice/status` | Non-secret provider/model summary for browser fallback decisions |
 | V speech output | `POST /v1/voice/speech` | Browser fallback when `VOICE_TTS_PROVIDER=disabled` |
-| Audio transcription | `POST /v1/voice/transcribe` | Disabled until `VOICE_STT_PROVIDER=openai` |
+| Audio transcription | `POST /v1/voice/transcribe` | Browser fallback when `VOICE_STT_PROVIDER=disabled`; OpenAI/Azure/Gemini when enabled |
 
 Production TTS is configured with env vars such as `VOICE_TTS_PROVIDER=elevenlabs`,
 `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID`. Repeated TTS output is cached by provider,
-model, voice, style version, format, and text so common V lines play back consistently.
+model, voice, ElevenLabs voice settings, style version, format, and text so common V lines play
+back consistently. Production STT is selected with `VOICE_STT_PROVIDER=openai` plus
+`OPENAI_TRANSCRIBE_MODEL=whisper-1`, `VOICE_STT_PROVIDER=azure` plus Azure Speech env vars, or
+`VOICE_STT_PROVIDER=gemini` plus `GOOGLE_API_KEY` and optional `VOICE_STT_MODEL`. `AI_PROVIDER` /
+`AI_MODEL*` still only control V's text reasoning; listening is controlled by `VOICE_STT_PROVIDER`.
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for setup and [DEMO_DATA.md](./docs/DEMO_DATA.md) for
 copy/paste API examples.
 

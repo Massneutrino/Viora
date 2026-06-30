@@ -8,10 +8,11 @@ import {
   OperationsSection,
   PilotSection,
   SandboxSection,
+  VWorkflowsSection,
   type ConsoleData,
 } from "./sections";
 
-type NavId = "overview" | "operations" | "pilot" | "sandbox";
+type NavId = "overview" | "operations" | "workflows" | "pilot" | "sandbox";
 
 const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: ReactNode }[] = [
   {
@@ -34,6 +35,13 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
     title: "Pilot leads",
     subtitle: "Interest captured from the marketing site.",
     icon: <InboxIcon />,
+  },
+  {
+    id: "workflows",
+    label: "V Workflows",
+    title: "V Workflows",
+    subtitle: "Versioned playbooks and safe simulations for V's agent interactions.",
+    icon: <WorkflowIcon />,
   },
   {
     id: "sandbox",
@@ -270,6 +278,7 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
 
             {active === "overview" && <OverviewSection data={data} />}
             {active === "operations" && <OperationsSection data={data} />}
+            {active === "workflows" && <VWorkflowsSection data={data} />}
             {active === "pilot" && <PilotSection data={data} />}
             {active === "sandbox" && <SandboxSection data={data} />}
           </div>
@@ -380,6 +389,19 @@ function InboxIcon() {
     <svg {...iconProps()}>
       <path d="M22 12h-6l-2 3h-4l-2-3H2" />
       <path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.5Z" />
+    </svg>
+  );
+}
+
+function WorkflowIcon() {
+  return (
+    <svg {...iconProps()}>
+      <rect x="3" y="4" width="6" height="6" rx="1.5" />
+      <rect x="15" y="4" width="6" height="6" rx="1.5" />
+      <rect x="9" y="15" width="6" height="6" rx="1.5" />
+      <path d="M9 7h6" />
+      <path d="M6 10v2a6 6 0 0 0 6 6" />
+      <path d="M18 10v2a6 6 0 0 1-6 6" />
     </svg>
   );
 }

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
-import { createVoiceClient, VoiceProviderError } from "@viora/agents";
+import { createVoiceClient, getActiveVoiceConfig, VoiceProviderError } from "@viora/agents";
 import { writeAuditEvent } from "../audit.js";
 
 const speechSchema = z.object({
@@ -51,6 +51,8 @@ export const voiceRoutes: FastifyPluginAsync = async (app) => {
   app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_request, body, done) => {
     done(null, body);
   });
+
+  app.get("/status", async () => getActiveVoiceConfig());
 
   app.post("/speech", async (request, reply) => {
     const body = speechSchema.parse(request.body);

@@ -13,3 +13,5 @@ export {
   AccountRow,
   Avatar,
 } from "./components/Settings";
+export { isVoiceCaptureSupported, startVoiceCapture } from "./voice";
+export type { VoiceCaptureController, VoiceTranscriptResult } from "./voice";

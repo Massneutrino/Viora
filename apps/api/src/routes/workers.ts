@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
 import { haversineKm } from "@viora/domain";
@@ -68,6 +68,16 @@ const shiftFeedbackSchema = z
     message: "rating or comment is required.",
   });
 
+const workerVoiceCommandSchema = z.object({
+  transcript: z.string().trim().min(1).max(2000),
+  pendingAction: z
+    .object({
+      type: z.enum(["accept_offer", "decline_offer"]),
+      offerId: z.string().min(1),
+    })
+    .optional(),
+});
+
 // Account hub: profile fields live on Worker; payFloor/commute live on the
 // worker's GuardrailPolicy. A single PATCH updates both.
 const workerProfileSchema = z
@@ -118,6 +128,106 @@ type WorkerProfileRow = {
 /** Flatten the passport's reliability score onto the profile DTO. */
 function toProfileDto({ passport, ...rest }: WorkerProfileRow) {
   return { ...rest, reliabilityScore: passport?.reliabilityScore ?? null };
+}
+
+async function acceptWorkerOffer(app: FastifyInstance, workerId: string, offerId: string) {
+  const existing = await app.db.offer.findUnique({
+    where: { id: offerId },
+    select: { workerId: true, bookingRequestId: true },
+  });
+
+  if (!existing || existing.workerId !== workerId) {
+    return { statusCode: 404, body: { error: "Offer not found." } };
+  }
+
+  const result = await app.agents.employer.processRequest(
+    existing.bookingRequestId,
+    offerId,
+    workerId,
+  );
+
+  if (!result.success) {
+    if (
+      result.requiresHumanApproval &&
+      result.auditPayload.queueAction === "booking.create" &&
+      typeof result.auditPayload.organisationId === "string"
+    ) {
+      const approval = await queuePendingApproval(app.db, {
+        organisationId: result.auditPayload.organisationId,
+        actorType: "user",
+        actorId: workerId,
+        action: "booking.create",
+        entityType: "Offer",
+        entityId: offerId,
+        inputs: {
+          bookingRequestId: existing.bookingRequestId,
+          offerId,
+          workerId,
+          guardrail: result.auditPayload.guardrail ?? null,
+        } as Prisma.InputJsonValue,
+        explanation: result.explanation,
+      });
+      return {
+        statusCode: 202,
+        body: {
+          requiresHumanApproval: true,
+          approval,
+          explanation: result.explanation,
+        },
+      };
+    }
+    return { statusCode: 409, body: result };
+  }
+
+  return { statusCode: 200, body: { booking: result.data, message: result.explanation } };
+}
+
+async function declineWorkerOffer(app: FastifyInstance, workerId: string, offerId: string) {
+  const existing = await app.db.offer.findUnique({
+    where: { id: offerId },
+    select: { workerId: true, status: true },
+  });
+
+  if (!existing || existing.workerId !== workerId) {
+    return { statusCode: 404, body: { error: "Offer not found." } };
+  }
+
+  if (existing.status !== "pending") {
+    return { statusCode: 409, body: { error: `Offer already ${existing.status}.` } };
+  }
+
+  const offer = await app.db.offer.update({
+    where: { id: offerId },
+    data: { status: "declined" },
+  });
+  await writeAuditEvent(app.db, {
+    actorType: "user",
+    actorId: workerId,
+    action: "offer.decline",
+    entityType: "Offer",
+    entityId: offer.id,
+    inputs: { workerId, offerId } as Prisma.InputJsonValue,
+    outputs: { status: offer.status } as Prisma.InputJsonValue,
+    outcome: "declined",
+  });
+  await app.agents.memory.recordOfferOutcome(offer.id, "declined").catch(() => undefined);
+  return { statusCode: 200, body: { offer, message: "Shift declined." } };
+}
+
+function detectWorkerVoiceIntent(text: string): "accept_offer" | "decline_offer" | "answer" | "unknown" {
+  const lower = text.toLowerCase();
+  if (/\b(accept|take|book|confirm|yes|yeah|yep|i'?ll do it|sign me up)\b/.test(lower)) return "accept_offer";
+  if (/\b(decline|pass|reject|no|not this|skip)\b/.test(lower)) return "decline_offer";
+  if (/\b(pay|rate|where|site|when|time|travel|why|briefing|passport|dbs|offer|shift)\b/.test(lower)) return "answer";
+  return "unknown";
+}
+
+function isVoiceConfirmation(text: string): boolean {
+  return /\b(confirm|yes|yeah|yep|do it|go ahead|accept|decline|pass)\b/i.test(text);
+}
+
+function isVoiceCancellation(text: string): boolean {
+  return /\b(cancel|stop|no|never mind|nevermind|don'?t)\b/i.test(text);
 }
 
 export const workerRoutes: FastifyPluginAsync = async (app) => {
@@ -194,6 +304,112 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
     };
 
     return reply.send({ offer: dto });
+  });
+
+  /** POST /v1/workers/:id/voice/command - interpret a worker voice turn without mutating on ambiguity */
+  app.post("/:id/voice/command", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = workerVoiceCommandSchema.parse(request.body);
+    const worker = await app.db.worker.findUnique({
+      where: { id },
+      select: { id: true, firstName: true },
+    });
+    if (!worker) return reply.code(404).send({ error: "Worker not found." });
+
+    const currentOffer = await app.db.offer.findFirst({
+      where: { workerId: id, status: "pending" },
+      include: {
+        bookingRequest: {
+          include: {
+            organisation: { select: { name: true } },
+            site: { select: { name: true, address: true, city: true, postcode: true, siteInstructions: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const transcript = body.transcript.trim();
+    let intent = detectWorkerVoiceIntent(transcript);
+    let replyText = "I heard you, but I need a clearer question about this shift.";
+    let requiresConfirmation = false;
+    let pendingAction: { type: "accept_offer" | "decline_offer"; offerId: string } | null = null;
+    let actionExecuted = false;
+    let actionResult: unknown = null;
+
+    if (body.pendingAction) {
+      intent = body.pendingAction.type;
+      if (isVoiceCancellation(transcript)) {
+        replyText = "No problem - I have not changed this offer.";
+        intent = "unknown";
+      } else if (isVoiceConfirmation(transcript)) {
+        const result =
+          body.pendingAction.type === "accept_offer"
+            ? await acceptWorkerOffer(app, id, body.pendingAction.offerId)
+            : await declineWorkerOffer(app, id, body.pendingAction.offerId);
+        if (result.statusCode >= 400) {
+          return reply.code(result.statusCode).send(result.body);
+        }
+        actionExecuted = true;
+        actionResult = result.body;
+        replyText =
+          body.pendingAction.type === "accept_offer"
+            ? "Confirmed - I have accepted that shift for you."
+            : "Confirmed - I have passed on that shift.";
+      } else {
+        requiresConfirmation = true;
+        pendingAction = body.pendingAction;
+        replyText =
+          body.pendingAction.type === "accept_offer"
+            ? "Please say confirm to accept this shift, or cancel to leave it unchanged."
+            : "Please say confirm to pass on this shift, or cancel to leave it unchanged.";
+      }
+    } else if ((intent === "accept_offer" || intent === "decline_offer") && currentOffer) {
+      requiresConfirmation = true;
+      pendingAction = { type: intent, offerId: currentOffer.id };
+      const br = currentOffer.bookingRequest;
+      replyText =
+        intent === "accept_offer"
+          ? `I heard you want to accept ${roleLabel(br.roleType)} at ${br.site.name}. Say confirm to book it.`
+          : `I heard you want to pass on ${roleLabel(br.roleType)} at ${br.site.name}. Say confirm to decline it.`;
+    } else if ((intent === "accept_offer" || intent === "decline_offer") && !currentOffer) {
+      replyText = "There is no pending offer to act on right now.";
+      intent = "unknown";
+    } else if (intent === "answer" && currentOffer) {
+      const br = currentOffer.bookingRequest;
+      const siteLine = [br.site.address, br.site.city, br.site.postcode].filter(Boolean).join(", ");
+      replyText = `${roleLabel(br.roleType)} at ${br.site.name}, ${siteLine}. It pays GBP ${currentOffer.payRate}/day on ${offerDateFmt.format(br.startAt)} from ${offerTimeFmt.format(br.startAt)} to ${offerTimeFmt.format(br.endAt)}.`;
+    } else if (intent === "answer") {
+      replyText = "You do not have a pending offer right now. I can show new offers when V finds one.";
+    }
+
+    await writeAuditEvent(app.db, {
+      actorType: "user",
+      actorId: id,
+      action: "worker.voice.command",
+      entityType: currentOffer ? "Offer" : "Worker",
+      entityId: currentOffer?.id ?? id,
+      inputs: {
+        transcript,
+        pendingAction: body.pendingAction ?? null,
+      } as Prisma.InputJsonValue,
+      outputs: {
+        intent,
+        requiresConfirmation,
+        pendingAction,
+        actionExecuted,
+      } as Prisma.InputJsonValue,
+      outcome: actionExecuted ? "executed" : requiresConfirmation ? "confirmation_required" : "answered",
+    });
+
+    return reply.send({
+      intent,
+      reply: replyText,
+      requiresConfirmation,
+      pendingAction,
+      actionExecuted,
+      actionResult,
+    });
   });
 
   /** GET /v1/workers/:id — profile + guardrail policy (account hub) */
@@ -595,88 +811,14 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/:id/offers/:offerId/accept", async (request, reply) => {
     const { id: workerId, offerId } = request.params as { id: string; offerId: string };
-
-    const existing = await app.db.offer.findUnique({
-      where: { id: offerId },
-      select: { workerId: true, bookingRequestId: true },
-    });
-
-    if (!existing || existing.workerId !== workerId) {
-      return reply.code(404).send({ error: "Offer not found." });
-    }
-
-    const result = await app.agents.employer.processRequest(
-      existing.bookingRequestId,
-      offerId,
-      workerId,
-    );
-
-    if (!result.success) {
-      if (
-        result.requiresHumanApproval &&
-        result.auditPayload.queueAction === "booking.create" &&
-        typeof result.auditPayload.organisationId === "string"
-      ) {
-        const approval = await queuePendingApproval(app.db, {
-          organisationId: result.auditPayload.organisationId,
-          actorType: "user",
-          actorId: workerId,
-          action: "booking.create",
-          entityType: "Offer",
-          entityId: offerId,
-          inputs: {
-            bookingRequestId: existing.bookingRequestId,
-            offerId,
-            workerId,
-            guardrail: result.auditPayload.guardrail ?? null,
-          } as Prisma.InputJsonValue,
-          explanation: result.explanation,
-        });
-        return reply.code(202).send({
-          requiresHumanApproval: true,
-          approval,
-          explanation: result.explanation,
-        });
-      }
-      return reply.code(409).send(result);
-    }
-
-    return reply.send({ booking: result.data, message: result.explanation });
+    const result = await acceptWorkerOffer(app, workerId, offerId);
+    return reply.code(result.statusCode).send(result.body);
   });
 
   app.post("/:id/offers/:offerId/decline", async (request, reply) => {
     const { id, offerId } = request.params as { id: string; offerId: string };
-
-    const existing = await app.db.offer.findUnique({
-      where: { id: offerId },
-      select: { workerId: true, status: true },
-    });
-
-    if (!existing || existing.workerId !== id) {
-      return reply.code(404).send({ error: "Offer not found." });
-    }
-
-    if (existing.status !== "pending") {
-      return reply.code(409).send({ error: `Offer already ${existing.status}.` });
-    }
-
-    const offer = await app.db.offer.update({
-      where: { id: offerId },
-      data: { status: "declined" },
-    });
-    await writeAuditEvent(app.db, {
-      actorType: "user",
-      actorId: id,
-      action: "offer.decline",
-      entityType: "Offer",
-      entityId: offer.id,
-      inputs: { workerId: id, offerId } as Prisma.InputJsonValue,
-      outputs: { status: offer.status } as Prisma.InputJsonValue,
-      outcome: "declined",
-    });
-    await app.agents.memory.recordOfferOutcome(offer.id, "declined")
-      .catch((err) => request.log.warn({ err }, "memory edge update failed after offer decline"));
-    return reply.send({ offer, message: "Shift declined." });
+    const result = await declineWorkerOffer(app, id, offerId);
+    return reply.code(result.statusCode).send(result.body);
   });
 
   app.post("/:id/shifts/:shiftId/check-in", async (request, reply) => {

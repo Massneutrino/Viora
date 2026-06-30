@@ -138,10 +138,16 @@ Enable ElevenLabs for V's production TTS:
 
 ```env
 VOICE_TTS_PROVIDER=elevenlabs
+VOICE_TTS_STYLE="V sounds like a sharp British staffing coordinator in her late 20s: calm, capable, concise, and quietly confident. Use modern neutral UK delivery, natural pauses, subtle downward inflection on firm statements, and extra clarity for dates, shifts, DBS, compliance, bookings, and next steps. Never sound salesy, theatrical, childish, maternal, overly cheerful, or like a generic assistant."
 ELEVENLABS_API_KEY=your_elevenlabs_key
-ELEVENLABS_VOICE_ID=your_v_voice_id
+ELEVENLABS_VOICE_ID=8bNue5gVKTykcmaQaZfT
 ELEVENLABS_MODEL_ID=eleven_flash_v2_5
-VOICE_TTS_STYLE_VERSION=v1
+ELEVENLABS_STABILITY=0.46
+ELEVENLABS_SIMILARITY_BOOST=0.75
+ELEVENLABS_STYLE=0.06
+ELEVENLABS_SPEED=0.97
+ELEVENLABS_SPEAKER_BOOST=false
+VOICE_TTS_STYLE_VERSION=v4
 ```
 
 Enable OpenAI transcription for server-side STT:
@@ -162,7 +168,7 @@ curl -s -X POST http://localhost:6200/v1/voice/speech \
 ```
 
 The route writes `voice.speech.generate` audit events. Repeating the same text with the same
-provider/model/voice/style version returns cached audio.
+provider/model/voice/ElevenLabs voice settings/style version returns cached audio.
 
 Transcribe a local browser recording or voice note:
 

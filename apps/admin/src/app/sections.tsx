@@ -10,6 +10,8 @@ import { SandboxPanel } from "./sandbox-panel";
 import { BreakdownPanel, MiniStat } from "./analytics";
 import { LeadActions } from "./pilot-approve";
 import { TimesheetsQueue, type PendingTimesheet } from "./timesheets-queue";
+import { VWorkflows } from "./v-workflows";
+import type { WorkflowSummary } from "@viora/domain";
 import {
   EMPTY_STATS,
   EMPTY_MEMORY_IMPACT,
@@ -94,6 +96,7 @@ export interface ConsoleData {
   memoryLab: MemoryLabState;
   pendingTimesheets: PendingTimesheet[];
   bookingOps: BookingOpsItem[];
+  vWorkflows: WorkflowSummary[];
 }
 
 const RECOVERY_ACTIONS = [
@@ -425,6 +428,14 @@ export function SandboxSection({ data }: { data: ConsoleData }) {
         />
       </Panel>
     </div>
+  );
+}
+
+export function VWorkflowsSection({ data }: { data: ConsoleData }) {
+  return (
+    <Panel title="V Workflows" description="Versioned playbooks and deterministic simulations for V's agent interactions">
+      <VWorkflows initialWorkflows={data.vWorkflows} />
+    </Panel>
   );
 }
 

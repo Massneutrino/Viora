@@ -9,12 +9,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 **Remaining for Phase 0 close-out (0 items):** Phase 0 backend complete; post-MVP polish remains below.
 
 **Recent fixes (review follow-up):**
+- V Workflows milestone added as an admin-only, code-defined playbook viewer/simulator: shared workflow registry and validator in `packages/domain/src/workflows.ts`, read-only admin endpoints under `/v1/admin/v-workflows`, deterministic simulation with a single `workflow.simulate` audit event, Admin **V Workflows** tab with lightweight SVG/HTML graph rendering, and `npm run test:workflows` coverage. Live runtime orchestration remains unchanged.
 - MCP architecture decision documented: MCP is not a Phase 0 core architecture dependency; future MCP belongs behind a separate, permissioned edge gateway that delegates to existing API/agent/domain services and preserves audit, guardrail, compliance, and memory privacy boundaries.
 - Phase 0 close-out hardening completed: added `npm run test:phase0` (`scripts/smoke-phase0.mjs`) to run the API in-process and verify health, demo directory, all five sandbox scenarios, Dynamic Rate guardrail restore, worker offer DTOs, negotiations, and audit visibility.
 - Memory smoke is now repeatable without a separately running API: `npm run test:memory` runs the real Fastify app in-process by default; set `MEMORY_TEST_USE_HTTP=1` to target `API_URL`.
 - Intake benchmark hardening: `vAgent.parseIntent()` now deterministically defaults Standard Rate, preserves lightweight requirements keywords, resolves named sites from the provided site list, normalizes Dynamic Rate "up to" ceilings, and applies guardrail-driven missing fields before returning.
 - Close-out verification passed: `npm run typecheck`, `npm run build`, `npm run test:phase0`, `npm run test:memory`, and `npm run benchmark:intake -- --limit 10` (100% sample accuracy on the 10-sample fixture).
-- Server-side V voice provider layer added: `/v1/voice/speech` for cached TTS, `/v1/voice/transcribe` for raw-audio STT, `createVoiceClient()` provider switching, ElevenLabs/OpenAI env config, audit events, and browser fallback in site/admin.
+- Server-side V voice provider layer added: `/v1/voice/speech` for cached TTS, `/v1/voice/transcribe` for raw-audio STT, `createVoiceClient()` provider switching, ElevenLabs/OpenAI TTS, OpenAI/Azure STT env config, audit events, and browser fallback across site/web/worker/admin voice surfaces.
 - Dynamic Rate demo support added as a dedicated sandbox scenario (`dynamic-rate-clearing`) with seeded worker pay floors and guardrail restore; Standard Rate remains the default Greenfield demo path.
 - Seed refreshes the canonical `demo-booking-request` onto a future date, recreates the pending seeded offer, and upserts Dynamic Rate worker pay floors so demo data does not go stale.
 - Demo operational fixture pack added: `npm run db:seed` now recreates fixed `demo-fixture-*` bookings, offers, shifts, timesheets, invoices and memory so every employer/worker navigation tab has realistic data.
@@ -49,7 +50,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ⚠️ **Scope flag:** this is a pilot-acquisition surface, outside the 17 `PHASE_0_MUST_HAVE` items — additive, not a core Phase 0 deliverable.
 
 **Voice-first site + waitlist→approval + Viora Memory (this iteration):**
-- Site hero is now **voice-first**: heading + animated typewriter subheading (cycling real asks), V orb as the centerpiece and **tap-to-talk trigger**. Speech input still uses browser `SpeechRecognition` by default; V speech output now calls `/v1/voice/speech` and falls back to `speechSynthesis` when server TTS is disabled/unavailable. `apps/site/src/app/{page,v-conversation,voice-audio}.tsx`.
+- Site hero is now **voice-first**: heading + animated typewriter subheading (cycling real asks), V orb as the centerpiece and **tap-to-talk trigger**. Speech input now records audio through shared `@viora/ui` capture and calls `/v1/voice/transcribe` first, with browser `SpeechRecognition` only as fallback; V speech output calls `/v1/voice/speech` and falls back to `speechSynthesis` when server TTS is disabled/unavailable. `apps/site/src/app/{page,v-conversation,voice-audio}.tsx`.
 - **Quick-form modal** (org/worker toggle) replaces the full-screen dual forms — `apps/site/src/app/quick-form.tsx`; opened from a quiet link / the conversation / the degraded path.
 - **Registration → waitlist**: `apps/site/src/app/register/page.tsx` (Sign-in target) posts to `/v1/pilot/leads`.
 - **Ops-dash approval mints accounts**: `POST /v1/admin/pilot/leads/:id/approve` (`apps/api/src/routes/admin.ts`) upserts the real `Organisation` (+Site+GuardrailPolicy+EmployerUser) or `Worker` (+Passport+GuardrailPolicy) with deterministic ids (idempotent), flips `PilotLead.status` to `approved`, writes an `AuditEvent`, and returns a `?orgId=`/`?workerId=` access link into the employer/worker app. Approve UI lives in the admin Pilot leads tab (`apps/admin/src/app/{sections,pilot-approve}.tsx`). Interim access until real auth lands.
@@ -180,6 +181,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 ## AI / LLM (post-MVP)
 
 - ✅ **Per-task model routing** — `createLLMClient({ task })` now routes `parseIntent` to the smart tier (`AI_MODEL_INTENT`, default Google Pro / Anthropic Opus) and `clarify` / `confirmIntent` / `explainFit` to the fast tier (`AI_MODEL_FAST`, default Google Flash / Anthropic fast default). Plain `AI_MODEL` remains a global backward-compatible override.
+- ✅ **Voice provider separation** — `AI_PROVIDER` / `AI_MODEL*` generate V's text only; `VOICE_STT_PROVIDER` hears the user through OpenAI Whisper, Azure Speech, or Gemini audio, and `VOICE_TTS_PROVIDER` speaks V through ElevenLabs/OpenAI TTS.
 - ✅ **Provider eval on real intake samples** — `npm run benchmark:intake -- --limit 10` builds domain/agents, runs UK employer sample messages through `parseIntent`, compares to gold JSON, and checks the 95% `PHASE_0_SUCCESS_METRICS.intentCaptureAccuracy` target. Use `--samples path/to/gold.json` for larger real-world sets.
 - 🔲 **Optional OpenAI provider** — extend `createLLMClient()` if GPT strict-schema / function-calling is needed.
 - 🔲 **Gemini schema cleanup** — revisit `toGoogleSchema()` / `additionalProperties` stripping once on structured JSON Schema mode; may improve `requirements` extraction.

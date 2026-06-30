@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PixelSphere, PixelRings, type WaveState } from "@viora/ui";
+import { PixelSphere, PixelRings, startVoiceCapture, type VoiceCaptureController, type WaveState } from "@viora/ui";
 import { playVSpeech } from "./voice-audio";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
@@ -29,8 +29,7 @@ export function VConsole() {
   const [busy, setBusy] = useState(false);
   const [wave, setWave] = useState<WaveState>("rest");
   const [listening, setListening] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<VoiceCaptureController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,50 +78,30 @@ export function VConsole() {
 
   // Tap the sphere to talk; auto-stops on silence, hard 30s safety cap.
   const startListening = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      alert("Voice input needs Chrome or Edge. You can type your question instead.");
-      return;
-    }
-    const rec = new SR();
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.lang = "en-GB";
-    recognitionRef.current = rec;
-    const cap = setTimeout(() => {
-      try {
-        rec.stop();
-      } catch {
-        /* noop */
-      }
-    }, 30000);
-    rec.onstart = () => {
-      setListening(true);
-      setWave("listening");
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => submit(e.results[0][0].transcript, true);
-    rec.onerror = () => {
-      setListening(false);
-      setWave("rest");
-    };
-    rec.onend = () => {
-      clearTimeout(cap);
-      setListening(false);
-      recognitionRef.current = null;
-      setWave((w) => (w === "listening" ? "rest" : w));
-    };
-    rec.start();
+    void startVoiceCapture({
+      apiUrl: API_URL,
+      onStart: () => {
+        setListening(true);
+        setWave("listening");
+      },
+      onStop: () => {
+        setListening(false);
+        recognitionRef.current = null;
+        setWave((w) => (w === "listening" ? "rest" : w));
+      },
+      onTranscript: ({ text }) => submit(text, true),
+      onError: () => {
+        setListening(false);
+        setWave("rest");
+      },
+    }).then((controller) => {
+      recognitionRef.current = controller;
+    });
   }, [submit]);
 
   const toggleMic = useCallback(() => {
     if (listening) {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* noop */
-      }
+      recognitionRef.current?.stop();
     } else {
       startListening();
     }

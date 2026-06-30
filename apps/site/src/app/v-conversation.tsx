@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { WaveState } from "@viora/ui";
+import { isVoiceCaptureSupported, startVoiceCapture, type VoiceCaptureController, type WaveState } from "@viora/ui";
 import { cancelVSpeech, playVSpeech } from "./voice-audio";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
@@ -25,13 +25,6 @@ type ChatResponse = {
 
 const GREETING = "Hi — I'm V. Are you looking to fill shifts, or looking for work?";
 const CHIPS = ["I need to fill shifts", "I'm looking for work", "How does V work?"];
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function getSpeechRecognition(): any | null {
-  if (typeof window === "undefined") return null;
-  return (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition ?? null;
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 /** Imperative handle so the hero orb (in page.tsx) can drive the conversation. */
 export type VConversationHandle = {
@@ -70,13 +63,13 @@ export const VConversation = forwardRef<
   messagesRef.current = messages;
   const modeRef = useRef(mode);
   modeRef.current = mode;
-  const recognitionRef = useRef<unknown>(null);
+  const recognitionRef = useRef<VoiceCaptureController | null>(null);
 
   const setWave = useCallback((s: WaveState) => onStateChange?.(s), [onStateChange]);
 
   // Detect after mount so SSR and first client render match (avoids hydration mismatch).
   useEffect(() => {
-    setSpeechSupported(getSpeechRecognition() !== null);
+    setSpeechSupported(isVoiceCaptureSupported());
     setTtsSupported("Audio" in window);
   }, []);
 
@@ -87,36 +80,46 @@ export const VConversation = forwardRef<
   }, []);
 
   const stopListening = useCallback(() => {
-    (recognitionRef.current as { stop?: () => void } | null)?.stop?.();
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
   }, []);
 
   const startListening = useCallback(() => {
-    const Recognition = getSpeechRecognition();
-    if (!Recognition || modeRef.current !== "voice") return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const recognition: any = new Recognition();
-    recognition.lang = "en-GB";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onstart = () => {
-      setListening(true);
-      setWave("listening");
-    };
-    recognition.onerror = () => {
-      setListening(false);
-      setWave("rest");
-    };
-    recognition.onend = () => setListening(false);
-    recognition.onresult = (event: { results: { [k: number]: { [k: number]: { transcript: string } } } }) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      if (transcript) sendRef.current(transcript);
-    };
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
-      /* already started */
-    }
+    if (modeRef.current !== "voice") return;
+    void startVoiceCapture({
+      apiUrl: API_URL,
+      onStart: () => {
+        setListening(true);
+        setWave("listening");
+      },
+      onStop: () => {
+        setListening(false);
+        recognitionRef.current = null;
+      },
+      onTranscript: ({ text }) => {
+        const lastV = [...messagesRef.current].reverse().find((msg) => msg.role === "v")?.content.toLowerCase() ?? "";
+        const likelyEmail = /\S+@\S+\.\S+/.test(text);
+        if (lastV.includes("email") && !likelyEmail) {
+          setMode("text");
+          modeRef.current = "text";
+          setInput(text);
+          setMessages((prev) => [
+            ...prev,
+            { role: "v", content: "I heard that as text, but email addresses are easy to mishear. Please type or correct your full email." },
+          ]);
+          setWave("rest");
+          setTimeout(() => document.getElementById("vc-input")?.focus(), 50);
+          return;
+        }
+        sendRef.current(text);
+      },
+      onError: () => {
+        setListening(false);
+        setWave("rest");
+      },
+    }).then((controller) => {
+      recognitionRef.current = controller;
+    });
   }, [setWave]);
 
   const speak = useCallback(

@@ -3,6 +3,7 @@ import type { BookingOpsItem } from "./bookings-ops";
 import { ConsoleShell } from "./console-shell";
 import type { ComplianceQueueItem } from "./compliance-queue";
 import type { PendingTimesheet } from "./timesheets-queue";
+import type { WorkflowSummary } from "@viora/domain";
 import {
   EMPTY_MEMORY_IMPACT,
   EMPTY_STATS,
@@ -33,7 +34,7 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export default async function AdminConsole() {
-  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, memoryEvidence, memoryConsolidation, pilotLeadData, auditData, negotiationsData, stats, memoryImpact, memoryLab, timesheetsData, bookingOpsData] =
+  const [unfilledData, marketHealth, complianceData, approvalsData, memoryData, memoryEvidence, memoryConsolidation, pilotLeadData, auditData, negotiationsData, stats, memoryImpact, memoryLab, timesheetsData, bookingOpsData, workflowData] =
     await Promise.all([
       getJson<{ unfilled: UnfilledShift[] }>("/v1/admin/ops/unfilled", { unfilled: [] }),
       getJson<MarketHealth>("/v1/admin/ops/market-health", {}),
@@ -58,6 +59,7 @@ export default async function AdminConsole() {
       }),
       getJson<{ pending: PendingTimesheet[] }>("/v1/admin/timesheets/pending", { pending: [] }),
       getJson<{ bookings: BookingOpsItem[] }>("/v1/admin/bookings/ops", { bookings: [] }),
+      getJson<{ workflows: WorkflowSummary[] }>("/v1/admin/v-workflows", { workflows: [] }),
     ]);
 
   return (
@@ -78,6 +80,7 @@ export default async function AdminConsole() {
         memoryLab,
         pendingTimesheets: timesheetsData.pending,
         bookingOps: bookingOpsData.bookings,
+        vWorkflows: workflowData.workflows,
       }}
     />
   );

@@ -34,6 +34,7 @@ import { sandboxRoutes } from "./routes/sandbox.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { whatsappRoutes } from "./routes/whatsapp.js";
 import { voiceRoutes } from "./routes/voice.js";
+import { vWorkflowRoutes } from "./routes/v-workflows.js";
 
 const port = Number(process.env.API_PORT ?? 6200);
 
@@ -83,6 +84,7 @@ export async function buildServer() {
   await app.register(memoryRoutes, { prefix: "/v1" });
   await app.register(whatsappRoutes, { prefix: "/v1/webhooks" });
   await app.register(adminRoutes, { prefix: "/v1/admin" });
+  await app.register(vWorkflowRoutes, { prefix: "/v1/admin" });
   await app.register(complianceAdminRoutes, { prefix: "/v1/admin" });
   await app.register(demoRoutes, { prefix: "/v1/admin" });
   await app.register(sandboxRoutes, { prefix: "/v1/admin/sandbox" });
