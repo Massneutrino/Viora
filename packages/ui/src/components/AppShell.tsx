@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import { PixelSphere, type WaveState } from "./PixelSphere"
 import { PixelRings } from "./PixelRings"
 import { Wordmark } from "./Wordmark"
+import { VoiceMuteToggle } from "./VoiceMuteToggle"
 
 export type PreviewMode = "auto" | "web" | "phone"
 export type NavItem = { id: string; label: string; icon: ReactNode }
@@ -12,24 +13,6 @@ export type NavItem = { id: string; label: string; icon: ReactNode }
 const OVER_RINGS: React.CSSProperties = {
   position: "absolute", inset: 0, zIndex: 1,
   display: "flex", flexDirection: "column", overflow: "hidden",
-}
-
-function PanelLeftIcon() {
-  return (
-    <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-    </svg>
-  )
-}
-
-function OnlineDot() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />
-      <span style={{ color: "var(--muted)", fontSize: 12 }}>V online</span>
-    </div>
-  )
 }
 
 function PreviewToggle({ preview, onChange }: { preview: PreviewMode; onChange: (m: PreviewMode) => void }) {
@@ -85,7 +68,6 @@ export function AppShell({
   footer?: ReactNode
 }) {
   const [isNarrow, setNarrow] = useState(false)
-  const [navCollapsed, setNavCollapsed] = useState(false)
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 899px)")
     const on = () => setNarrow(mq.matches)
@@ -103,63 +85,54 @@ export function AppShell({
   // ── Desktop: side-rail + main column ────────────────────────────────────────
   if (layout === "desktop") {
     return (
-      <div style={{ display: "flex", height: "100vh", background: "var(--bg)", overflow: "hidden" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", overflow: "hidden" }}>
         <PreviewToggle preview={preview} onChange={onPreviewChange} />
 
-        <nav style={{
-          width: navCollapsed ? 76 : 208, background: "var(--surface)", borderRight: "0.5px solid var(--border)",
-          display: "flex", flexDirection: "column", alignItems: navCollapsed ? "center" : "stretch",
-          paddingTop: 12, paddingLeft: navCollapsed ? 0 : 12, paddingRight: navCollapsed ? 0 : 12,
-          gap: 4, flexShrink: 0, transition: "width 0.15s",
+        <header style={{
+          height: 128, flexShrink: 0, background: "var(--surface)", borderBottom: "0.5px solid var(--border)",
+          display: "flex", alignItems: "center", padding: "0 56px",
         }}>
-          <button
-            type="button"
-            onClick={() => setNavCollapsed(c => !c)}
-            aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            style={{
-              width: 30, height: 30, flexShrink: 0, alignSelf: navCollapsed ? "center" : "flex-start",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              borderRadius: 8, border: "0.5px solid var(--border)", background: "var(--surface)", color: "var(--muted)",
-            }}
-          >
-            <PanelLeftIcon />
-          </button>
-          <div style={{ height: 8 }} />
-          {navItems.map(n => (
-            <button key={n.id} onClick={() => onNavChange(n.id)} title={n.label} style={{
-              border: "none", borderRadius: 11, transition: "all 0.15s",
-              background: activeNav === n.id ? "rgba(31,77,255,0.1)" : "transparent",
-              color: activeNav === n.id ? "var(--accent)" : "var(--muted)",
-              display: "flex", alignItems: "center",
-              ...(navCollapsed
-                ? { width: 60, padding: "8px 0", flexDirection: "column" as const, justifyContent: "center", gap: 4, alignSelf: "center" }
-                : { width: "100%", padding: "9px 11px", flexDirection: "row" as const, gap: 11 }),
-            }}>
-              {n.icon}
-              {navCollapsed
-                ? <span style={{ fontSize: 9, fontWeight: activeNav === n.id ? 600 : 400 }}>{n.label}</span>
-                : <span style={{ fontSize: 13, fontWeight: activeNav === n.id ? 600 : 500 }}>{n.label}</span>}
-            </button>
-          ))}
-        </nav>
-
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <header style={{ padding: "14px 22px", borderBottom: "0.5px solid var(--border)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <PixelSphere state="rest" size={44} staticMark />
-              <Wordmark />
-            </div>
-            <OnlineDot />
-          </header>
-          <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "var(--bg)" }}>
-            <PixelRings state={sphereState} centerY={112} innerRadius={78} />
-            <div style={OVER_RINGS}>
-              <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={172} />
-              <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <PixelSphere state="rest" size={72} staticMark />
+            <Wordmark scale={1.45} />
           </div>
-          {footer && <div style={{ flexShrink: 0, background: "var(--surface)", borderTop: "0.5px solid var(--border)" }}>{footer}</div>}
+          <div style={{ marginLeft: "auto", color: "var(--muted)" }}>
+            <VoiceMuteToggle />
+          </div>
+        </header>
+
+        <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+          <nav style={{
+            width: 76, background: "var(--surface)", borderRight: "0.5px solid var(--border)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "38px 0 12px",
+            gap: 4, flexShrink: 0,
+          }}>
+            {navItems.map(n => (
+              <button key={n.id} onClick={() => onNavChange(n.id)} title={n.label} style={{
+                border: "none", borderRadius: 11, transition: "all 0.15s",
+                background: activeNav === n.id ? "rgba(31,77,255,0.1)" : "transparent",
+                color: activeNav === n.id ? "var(--accent)" : "var(--muted)",
+                display: "flex", alignItems: "center",
+                width: 60, minHeight: 52, padding: "8px 0",
+                flexDirection: "column" as const, justifyContent: "center", gap: 4, alignSelf: "center",
+              }}>
+                {n.icon}
+                <span style={{ fontSize: 9, fontWeight: activeNav === n.id ? 600 : 400, maxWidth: 54, overflow: "hidden", textOverflow: "ellipsis" }}>{n.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ flex: 1, position: "relative", overflow: "hidden", backgroundColor: "var(--bg)" }}>
+              <PixelRings state={sphereState} centerY={112} innerRadius={78} />
+              <div style={OVER_RINGS}>
+                <Hero sphereState={sphereState} onSphereTap={onSphereTap} statusLabel={statusLabel} statusSublabel={statusSublabel} size={172} />
+                <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>{children}</div>
+              </div>
+            </div>
+            {footer && <div style={{ flexShrink: 0, background: "var(--surface)", borderTop: "0.5px solid var(--border)" }}>{footer}</div>}
+          </div>
         </div>
 
         <style>{`::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}`}</style>
@@ -178,6 +151,7 @@ export function AppShell({
         </div>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--muted)" }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />V
+          <VoiceMuteToggle size={16} />
         </span>
       </div>
 

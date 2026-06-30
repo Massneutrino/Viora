@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { normalizeVFirstPerson } from "@viora/agents";
 import type { ParsedBookingIntent, VIntakeContext } from "@viora/agents";
 import type { Prisma } from "@viora/database";
 
@@ -221,7 +222,7 @@ function buildParsePrompt(
   if (messages.length > 0) {
     parts.push(
       "Conversation so far:",
-      ...messages.map((m) => `${m.role === "employer" ? "Employer" : "V"}: ${m.content}`),
+      ...messages.map((m) => `${m.role === "employer" ? "Employer" : "V"}: ${m.role === "employer" ? m.content : normalizeVFirstPerson(m.content)}`),
     );
   }
   if (priorIntent) {
@@ -371,7 +372,7 @@ export async function processIntakeTurn(
     } catch (err) {
       const providerError = serializeError(err);
       log.warn({ err }, "V intake parse failed; using degraded fallback");
-      const message = fallbackIntakeMessage();
+      const message = normalizeVFirstPerson(fallbackIntakeMessage());
       const fallbackSnapshot = {
         rawInput: body.rawInput,
         missingFields: FALLBACK_MISSING_FIELDS,
@@ -509,6 +510,7 @@ export async function processIntakeTurn(
       responseProviderError = serializeError(err);
       message = clarificationNeeded ? fallbackClarificationMessage(missingFields) : fallbackConfirmationMessage(intent);
     }
+    message = normalizeVFirstPerson(message);
 
     const persistence = await app.db.$transaction(async (tx) => {
       let bookingRequestId: string | undefined;

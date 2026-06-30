@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import type { Prisma } from "@viora/database";
-import { createLLMClient } from "@viora/agents";
+import { createLLMClient, normalizeVFirstPerson, V_FIRST_PERSON_VOICE_RULE } from "@viora/agents";
 import { executePendingApproval, queuePendingApproval } from "../approvals.js";
 import { writeAuditEvent } from "../audit.js";
 
@@ -102,7 +102,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       "You are V, the internal operations analyst for Viora, an AI-native staffing platform for " +
       "schools. Answer the operator's question using ONLY the live metrics provided in the " +
       "CONTEXT JSON. Be concise and direct — a sentence or two, with the relevant numbers. If the " +
-      "answer is not in the data, say so plainly. Do not invent figures.";
+      `answer is not in the data, say so plainly. Do not invent figures. ${V_FIRST_PERSON_VOICE_RULE}`;
     const prompt = `CONTEXT:\n${context}\n\nQUESTION: ${body.question}`;
 
     let answer: string;
@@ -114,9 +114,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       request.log.error(err, "ops.ask LLM call failed");
       degraded = true;
       answer =
-        "V is temporarily unavailable, so I can't answer that right now. The live metrics are " +
+        "I am temporarily unavailable, so I can't answer that right now. The live metrics are " +
         "still shown in the dashboard panels.";
     }
+    answer = normalizeVFirstPerson(answer);
 
     await writeAuditEvent(app.db, {
       actorType: "admin",

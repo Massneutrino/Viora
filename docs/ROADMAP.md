@@ -28,7 +28,7 @@ See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 - `npm run test:memory && npm run test:memory:evals`
 - `npm run benchmark:intake -- --limit 10`
 
-Schedule **UI** tabs and Google/Outlook calendar sync are intentionally deferred: APIs ship in Phase 0; UI is in the schedule plan; external calendar OAuth is Phase 1.
+Schedule **UI** tabs ship in Phase 0 — worker `Schedule` tab (week strip + agenda, mark-unavailable, weekly availability) and employer Bookings `List | Schedule` coverage view, built on shared `@viora/ui` widgets. Google/Outlook/iCal calendar sync remains intentionally deferred to Phase 1 (external calendar OAuth).
 
 ---
 

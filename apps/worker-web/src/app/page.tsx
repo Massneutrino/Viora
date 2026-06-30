@@ -1,11 +1,16 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, Suspense } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, type CSSProperties, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AppShell, SectionCard, SettingRow, EditableField, ChipsField, ToggleRow, AccountRow, Avatar,
-  startVoiceCapture, type VoiceCaptureController, type WaveState, type NavItem, type PreviewMode,
+  cancelVSpeech, playVSpeech, startVoiceCapture, type VoiceCaptureController, type VoicePurpose, type WaveState, type NavItem, type PreviewMode,
+  WeekStrip, WeekNav, AgendaList, HourTimeline, ScheduleEventCard, SegmentedToggle, Sheet, type WeekStripDay,
+  dayKey, dayRange, startOfWeekMonday, addWeeks, addDaysUtc, weekRangeFromAnchor,
+  formatWeekdayShort, formatDayNumber, formatWeekRangeLabel, formatEventTimeRange, formatEventDayLabel,
+  zonedIso, DEFAULT_TZ,
 } from "@viora/ui"
+import type { ScheduleResponse, ScheduleEvent } from "@viora/domain"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200"
 const DEFAULT_WORKER_ID = "demo-worker"
@@ -214,6 +219,7 @@ function NavIcon({ name }: { name: string }) {
   if (name === "deck") return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>
   if (name === "earnings") return <svg {...common}><path d="M16 7c-.7-1.2-2-2-3.5-2C10 5 8.5 6.8 8.5 9c0 4 .5 4 .5 6H7M7 12h6" /></svg>
   if (name === "passport") return <svg {...common}><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" /></svg>
+  if (name === "schedule") return <svg {...common}><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4" /></svg>
   return <svg {...common}><circle cx="12" cy="8" r="3.2" /><path d="M5 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5" /></svg>
 }
 
@@ -554,7 +560,7 @@ function ProfileTab({
               <button onClick={() => void deleteMemory(memory.id)} style={{ border: "none", background: "transparent", color: "#b42318", fontSize: 11, cursor: "pointer" }}>Delete</button>
             </div>
           </div>
-        )) : <SettingRow label="No memories yet" sublabel="V will learn from your choices and confirmed preferences." />}
+        )) : <SettingRow label="No memories yet" sublabel="I will learn from your choices and confirmed preferences." />}
         <AccountRow label="Add memory" sublabel="Tell V something useful for future shifts" onClick={() => void addMemory()} />
       </SectionCard>
 
@@ -563,7 +569,7 @@ function ProfileTab({
       </SectionCard>
 
       <SectionCard title="Notifications">
-        <ToggleRow label="Shift alerts" sublabel="Notify me when V finds a match" checked={shiftAlerts} onChange={setShiftAlerts} />
+        <ToggleRow label="Shift alerts" sublabel="Notify me when I find a match" checked={shiftAlerts} onChange={setShiftAlerts} />
         <ToggleRow label="Sounds" sublabel="Audio cues for new offers" checked={sounds} onChange={setSounds} />
       </SectionCard>
 
@@ -668,6 +674,375 @@ function EarningsTab({ workerId, apiUrl }: { workerId: string; apiUrl: string })
   )
 }
 
+// ── Schedule tab ─────────────────────────────────────────────────────────────
+
+type AvailabilityPattern = {
+  workerId: string
+  timezone: string
+  daysOfWeek: number[]
+  startTime: string | null
+  endTime: string | null
+} | null
+
+const scheduleInput: CSSProperties = {
+  width: "100%", background: "var(--bg)", border: "0.5px solid var(--border-strong)",
+  borderRadius: 9, padding: "9px 11px", fontSize: 13, color: "var(--text)", outline: "none", fontFamily: "inherit",
+}
+const sheetGhostBtn: CSSProperties = {
+  flex: 1, background: "var(--surface)", border: "0.5px solid var(--border-strong)", color: "var(--muted)",
+  borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 600, cursor: "pointer",
+}
+const sheetPrimaryBtn: CSSProperties = {
+  flex: 1, background: "var(--accent)", border: "none", color: "#fff",
+  borderRadius: 12, padding: 12, fontSize: 13, fontWeight: 700, cursor: "pointer",
+}
+const cardActionBtn: CSSProperties = {
+  background: "var(--surface-2)", border: "0.5px solid var(--border)", color: "var(--muted)",
+  borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+}
+const cardActionDanger: CSSProperties = {
+  background: "transparent", border: "0.5px solid var(--border)", color: "var(--error)",
+  borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+}
+const centeredNote: CSSProperties = { padding: "28px 16px", textAlign: "center", color: "var(--muted)", fontSize: 12 }
+
+const DOW_ORDER: { v: number; l: string }[] = [
+  { v: 1, l: "Mon" }, { v: 2, l: "Tue" }, { v: 3, l: "Wed" }, { v: 4, l: "Thu" },
+  { v: 5, l: "Fri" }, { v: 6, l: "Sat" }, { v: 0, l: "Sun" },
+]
+
+function ScheduleField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1, minWidth: 0 }}>
+      <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 600 }}>{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function nextDateKey(key: string): string {
+  const [y, m, d] = key.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + 1))
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0")
+  const dd = String(dt.getUTCDate()).padStart(2, "0")
+  return `${dt.getUTCFullYear()}-${mm}-${dd}`
+}
+function timeInTz(iso: string, tz: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso))
+}
+function scheduleCounts(events: ScheduleEvent[]) {
+  const c = { confirmed: 0, pending: 0, open: 0, unavailable: 0 }
+  for (const e of events) {
+    if (e.kind === "confirmed_shift") c.confirmed++
+    else if (e.kind === "pending_offer") c.pending++
+    else if (e.kind === "open_request") c.open++
+    else if (e.kind === "unavailable_block") c.unavailable++
+  }
+  return c
+}
+function patternSummaryText(p: AvailabilityPattern): string {
+  if (!p || !p.daysOfWeek?.length) return "Not set yet"
+  return DOW_ORDER.filter((d) => p.daysOfWeek.includes(d.v)).map((d) => d.l).join(", ")
+}
+function patternHoursText(p: AvailabilityPattern): string {
+  if (!p || !p.daysOfWeek?.length) return "Set the days & hours you usually work."
+  return p.startTime && p.endTime ? `${p.startTime}–${p.endTime}` : "All day"
+}
+
+function ScheduleTab({ workerId, apiUrl, onOpenDeck }: { workerId: string; apiUrl: string; onOpenDeck: () => void }) {
+  const [weekAnchor, setWeekAnchor] = useState<Date>(() => startOfWeekMonday(new Date()))
+  const [view, setView] = useState<"agenda" | "hourly">("agenda")
+  const [resp, setResp] = useState<ScheduleResponse | null>(null)
+  const [dayHours, setDayHours] = useState<ScheduleResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string>(() => dayKey(new Date(), DEFAULT_TZ))
+
+  const tz = resp?.range.timezone ?? DEFAULT_TZ
+  const { from, to } = useMemo(() => weekRangeFromAnchor(weekAnchor), [weekAnchor])
+  const todayKey = useMemo(() => dayKey(new Date(), tz), [tz])
+  const thisWeekFrom = useMemo(() => weekRangeFromAnchor(startOfWeekMonday(new Date())).from, [])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&granularity=day`)
+      if (!res.ok) { setError("Could not load schedule."); setResp(null); return }
+      setResp(await res.json())
+    } catch { setError("Could not load schedule."); setResp(null) }
+    finally { setLoading(false) }
+  }, [apiUrl, workerId, from, to])
+  useEffect(() => { load() }, [load])
+
+  // Keep the selected day within the visible week.
+  useEffect(() => {
+    const keys = Array.from({ length: 7 }, (_, i) => dayKey(addDaysUtc(new Date(from), i), tz))
+    if (!keys.includes(selectedKey)) setSelectedKey(keys.includes(todayKey) ? todayKey : keys[0])
+  }, [from, tz, selectedKey, todayKey])
+
+  // Hour view: fetch the selected day at hour granularity.
+  const loadDayHours = useCallback(async () => {
+    const { from: dFrom, to: dTo } = dayRange(selectedKey, tz)
+    try {
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}/schedule?from=${encodeURIComponent(dFrom)}&to=${encodeURIComponent(dTo)}&granularity=hour`)
+      setDayHours(res.ok ? await res.json() : null)
+    } catch { setDayHours(null) }
+  }, [apiUrl, workerId, selectedKey, tz])
+  useEffect(() => { if (view === "hourly") loadDayHours() }, [view, loadDayHours])
+
+  // Weekly availability pattern (summary + editor seed).
+  const [pattern, setPattern] = useState<AvailabilityPattern>(null)
+  const loadPattern = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}/availability`)
+      if (res.ok) { const d = await res.json(); setPattern(d.pattern ?? null) }
+    } catch { /* non-blocking */ }
+  }, [apiUrl, workerId])
+  useEffect(() => { loadPattern() }, [loadPattern])
+
+  const days: WeekStripDay[] = useMemo(() => {
+    const fromDate = new Date(from)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = addDaysUtc(fromDate, i)
+      const key = dayKey(d, tz)
+      const dayEvents = resp?.days.find((x) => x.key === key)?.events ?? []
+      return {
+        key,
+        weekdayLabel: formatWeekdayShort(d, tz),
+        dayNumber: formatDayNumber(d, tz),
+        isToday: key === todayKey,
+        counts: dayEvents.length ? scheduleCounts(dayEvents) : undefined,
+      }
+    })
+  }, [from, tz, resp, todayKey])
+
+  const selectedDay = resp?.days.find((d) => d.key === selectedKey)
+  const selectedEvents = selectedDay?.events ?? []
+  const dayLabel = selectedDay?.label ?? formatEventDayLabel(`${selectedKey}T12:00:00Z`, tz)
+
+  // ── Mark-unavailable sheet (block CRUD) ──
+  const [blockSheet, setBlockSheet] = useState<null | { mode: "create" } | { mode: "edit"; blockId: string }>(null)
+  const [blockDate, setBlockDate] = useState("")
+  const [blockAllDay, setBlockAllDay] = useState(true)
+  const [blockStart, setBlockStart] = useState("09:00")
+  const [blockEnd, setBlockEnd] = useState("17:00")
+  const [blockNote, setBlockNote] = useState("")
+  const [blockBusy, setBlockBusy] = useState(false)
+  const [blockErr, setBlockErr] = useState<string | null>(null)
+
+  const openCreateBlock = () => {
+    setBlockDate(selectedKey); setBlockAllDay(true); setBlockStart("09:00"); setBlockEnd("17:00")
+    setBlockNote(""); setBlockErr(null); setBlockSheet({ mode: "create" })
+  }
+  const openEditBlock = (ev: ScheduleEvent) => {
+    const id = ev.meta.availabilityBlockId
+    if (!id) return
+    const sTime = timeInTz(ev.startAt, tz)
+    const eTime = timeInTz(ev.endAt, tz)
+    const allDay = sTime === "00:00" && eTime === "00:00"
+    setBlockDate(dayKey(ev.startAt, tz)); setBlockAllDay(allDay)
+    setBlockStart(sTime); setBlockEnd(allDay ? "17:00" : eTime)
+    setBlockNote(ev.meta.note ?? ""); setBlockErr(null); setBlockSheet({ mode: "edit", blockId: id })
+  }
+  const saveBlock = async () => {
+    setBlockBusy(true); setBlockErr(null)
+    try {
+      let startAt: string
+      let endAt: string
+      if (blockAllDay) {
+        startAt = zonedIso(blockDate, "00:00", tz)
+        endAt = zonedIso(nextDateKey(blockDate), "00:00", tz)
+      } else {
+        if (blockEnd <= blockStart) { setBlockErr("End time must be after start time."); setBlockBusy(false); return }
+        startAt = zonedIso(blockDate, blockStart, tz)
+        endAt = zonedIso(blockDate, blockEnd, tz)
+      }
+      const body = { startAt, endAt, note: blockNote.trim() || null }
+      const editing = blockSheet?.mode === "edit"
+      const url = editing
+        ? `${apiUrl}/v1/workers/${workerId}/availability/blocks/${blockSheet.blockId}`
+        : `${apiUrl}/v1/workers/${workerId}/availability/blocks`
+      const res = await fetch(url, { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      if (!res.ok) { setBlockErr(res.status === 422 ? "Please check the times." : "Could not save — please try again."); setBlockBusy(false); return }
+      setBlockSheet(null)
+      await load()
+      if (view === "hourly") await loadDayHours()
+    } catch { setBlockErr("Could not save — please try again.") }
+    finally { setBlockBusy(false) }
+  }
+  const removeBlock = async (ev: ScheduleEvent) => {
+    const id = ev.meta.availabilityBlockId
+    if (!id || !window.confirm("Remove this unavailable block?")) return
+    try {
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}/availability/blocks/${id}`, { method: "DELETE" })
+      if (res.ok) { await load(); if (view === "hourly") await loadDayHours() }
+    } catch { /* ignore */ }
+  }
+
+  // ── Weekly availability pattern sheet ──
+  const [patternSheet, setPatternSheet] = useState(false)
+  const [patternDays, setPatternDays] = useState<number[]>([])
+  const [patternHasHours, setPatternHasHours] = useState(false)
+  const [patternStart, setPatternStart] = useState("08:00")
+  const [patternEnd, setPatternEnd] = useState("16:00")
+  const [patternBusy, setPatternBusy] = useState(false)
+  const [patternErr, setPatternErr] = useState<string | null>(null)
+
+  const openPattern = () => {
+    setPatternDays(pattern?.daysOfWeek ?? [1, 2, 3, 4, 5])
+    const hasHours = !!(pattern?.startTime && pattern?.endTime)
+    setPatternHasHours(hasHours)
+    setPatternStart(pattern?.startTime ?? "08:00")
+    setPatternEnd(pattern?.endTime ?? "16:00")
+    setPatternErr(null); setPatternSheet(true)
+  }
+  const togglePatternDay = (v: number) =>
+    setPatternDays((d) => (d.includes(v) ? d.filter((x) => x !== v) : [...d, v]))
+  const savePattern = async () => {
+    setPatternBusy(true); setPatternErr(null)
+    try {
+      if (patternHasHours && patternEnd <= patternStart) { setPatternErr("End time must be after start time."); setPatternBusy(false); return }
+      const body = {
+        timezone: pattern?.timezone ?? DEFAULT_TZ,
+        daysOfWeek: [...patternDays].sort((a, b) => a - b),
+        startTime: patternHasHours ? patternStart : null,
+        endTime: patternHasHours ? patternEnd : null,
+      }
+      const res = await fetch(`${apiUrl}/v1/workers/${workerId}/availability/pattern`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      if (!res.ok) { setPatternErr(res.status === 422 ? "End time must be after start time." : "Could not save — please try again."); setPatternBusy(false); return }
+      const d = await res.json(); setPattern(d.pattern ?? null); setPatternSheet(false)
+    } catch { setPatternErr("Could not save — please try again.") }
+    finally { setPatternBusy(false) }
+  }
+
+  const renderCard = (ev: ScheduleEvent) => {
+    const time = formatEventTimeRange(ev)
+    if (ev.kind === "pending_offer") {
+      return (
+        <ScheduleEventCard kind={ev.kind} title={ev.title} timeLabel={time} subtitle={ev.subtitle}
+          amountLabel={ev.meta.payRate != null ? formatGbp(ev.meta.payRate) : undefined}
+          pill={{ label: "Pending offer", tone: "accent" }} onClick={onOpenDeck} />
+      )
+    }
+    if (ev.kind === "unavailable_block") {
+      return (
+        <ScheduleEventCard kind={ev.kind} title="Unavailable" timeLabel={time} subtitle={ev.meta.note ?? undefined}
+          pill={{ label: "Unavailable", tone: "muted" }}
+          actions={<>
+            <button type="button" onClick={() => openEditBlock(ev)} style={cardActionBtn}>Edit</button>
+            <button type="button" onClick={() => removeBlock(ev)} style={cardActionDanger}>Remove</button>
+          </>} />
+      )
+    }
+    const atRisk = ev.status === "at_risk"
+    return (
+      <ScheduleEventCard kind={ev.kind} title={ev.title} timeLabel={time} subtitle={ev.subtitle}
+        amountLabel={ev.meta.payRate != null ? formatGbp(ev.meta.payRate) : undefined}
+        pill={{ label: atRisk ? "At risk" : "Confirmed", tone: atRisk ? "warning" : "success" }} />
+    )
+  }
+
+  const markBtn = (
+    <button type="button" onClick={openCreateBlock} style={{
+      width: "100%", background: "var(--surface)", border: "0.5px solid var(--border-strong)", color: "var(--accent)",
+      borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 600, cursor: "pointer",
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+    }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18M8 2v4M16 2v4M9 15h6" /></svg>
+      Mark unavailable
+    </button>
+  )
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "4px 20px 20px", width: "100%", maxWidth: 460, margin: "0 auto", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", margin: 0 }}>Schedule</h2>
+        <SegmentedToggle size="sm" value={view} onChange={setView}
+          options={[{ id: "agenda", label: "Day" }, { id: "hourly", label: "Hour" }]} />
+      </div>
+
+      <WeekNav rangeLabel={formatWeekRangeLabel(from, tz)}
+        onPrev={() => setWeekAnchor((a) => addWeeks(a, -1))}
+        onNext={() => setWeekAnchor((a) => addWeeks(a, 1))}
+        onThisWeek={() => setWeekAnchor(startOfWeekMonday(new Date()))}
+        isThisWeek={from === thisWeekFrom} />
+
+      <WeekStrip days={days} selectedKey={selectedKey} onSelect={setSelectedKey} />
+
+      {error ? (
+        <div style={centeredNote}>{error} · <button type="button" onClick={load} style={{ background: "none", border: "none", color: "var(--accent)", fontWeight: 600, cursor: "pointer" }}>Retry</button></div>
+      ) : loading && !resp ? (
+        <div style={centeredNote}>Loading schedule…</div>
+      ) : view === "agenda" ? (
+        <AgendaList dayLabel={dayLabel} events={selectedEvents} emptyLabel="No shifts or offers this day." renderCard={renderCard} footer={markBtn} />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={{ color: "var(--muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, paddingLeft: 4 }}>{dayLabel}</p>
+          {dayHours ? <HourTimeline hours={dayHours.hours ?? []} renderCard={renderCard} /> : <div style={centeredNote}>Loading hours…</div>}
+          {markBtn}
+        </div>
+      )}
+
+      <SectionCard title="Usual weekly availability" hint="V uses this to know when you generally work.">
+        <SettingRow label={patternSummaryText(pattern)} sublabel={patternHoursText(pattern)}>
+          <button type="button" onClick={openPattern} style={{ background: "transparent", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Edit</button>
+        </SettingRow>
+      </SectionCard>
+
+      <Sheet open={blockSheet !== null} title={blockSheet?.mode === "edit" ? "Edit unavailable" : "Mark unavailable"} onClose={() => setBlockSheet(null)}
+        footer={<div style={{ display: "flex", gap: 10 }}>
+          <button type="button" onClick={() => setBlockSheet(null)} style={sheetGhostBtn}>Cancel</button>
+          <button type="button" onClick={saveBlock} disabled={blockBusy} style={sheetPrimaryBtn}>{blockBusy ? "…" : "Save"}</button>
+        </div>}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <ScheduleField label="Date"><input type="date" value={blockDate} onChange={(e) => setBlockDate(e.target.value)} style={scheduleInput} /></ScheduleField>
+          <ToggleRow label="All day" checked={blockAllDay} onChange={setBlockAllDay} />
+          {!blockAllDay && (
+            <div style={{ display: "flex", gap: 10 }}>
+              <ScheduleField label="From"><input type="time" value={blockStart} onChange={(e) => setBlockStart(e.target.value)} style={scheduleInput} /></ScheduleField>
+              <ScheduleField label="To"><input type="time" value={blockEnd} onChange={(e) => setBlockEnd(e.target.value)} style={scheduleInput} /></ScheduleField>
+            </div>
+          )}
+          <ScheduleField label="Reason (optional)"><input type="text" maxLength={500} value={blockNote} placeholder="e.g. Holiday, appointment" onChange={(e) => setBlockNote(e.target.value)} style={scheduleInput} /></ScheduleField>
+          {blockErr && <p style={{ color: "var(--error)", fontSize: 12, margin: 0 }}>{blockErr}</p>}
+        </div>
+      </Sheet>
+
+      <Sheet open={patternSheet} title="Usual weekly availability" onClose={() => setPatternSheet(false)}
+        footer={<div style={{ display: "flex", gap: 10 }}>
+          <button type="button" onClick={() => setPatternSheet(false)} style={sheetGhostBtn}>Cancel</button>
+          <button type="button" onClick={savePattern} disabled={patternBusy} style={sheetPrimaryBtn}>{patternBusy ? "…" : "Save"}</button>
+        </div>}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <ScheduleField label="Days you usually work">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {DOW_ORDER.map((d) => {
+                const on = patternDays.includes(d.v)
+                return (
+                  <button key={d.v} type="button" onClick={() => togglePatternDay(d.v)} style={{
+                    border: on ? "0.5px solid rgba(31,77,255,0.3)" : "0.5px solid var(--border-strong)",
+                    background: on ? "rgba(31,77,255,0.1)" : "var(--surface)", color: on ? "var(--accent)" : "var(--muted)",
+                    borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  }}>{d.l}</button>
+                )
+              })}
+            </div>
+          </ScheduleField>
+          <ToggleRow label="Set specific hours" sublabel="Off means available all day on those days." checked={patternHasHours} onChange={setPatternHasHours} />
+          {patternHasHours && (
+            <div style={{ display: "flex", gap: 10 }}>
+              <ScheduleField label="From"><input type="time" value={patternStart} onChange={(e) => setPatternStart(e.target.value)} style={scheduleInput} /></ScheduleField>
+              <ScheduleField label="To"><input type="time" value={patternEnd} onChange={(e) => setPatternEnd(e.target.value)} style={scheduleInput} /></ScheduleField>
+            </div>
+          )}
+          {patternErr && <p style={{ color: "var(--error)", fontSize: 12, margin: 0 }}>{patternErr}</p>}
+        </div>
+      </Sheet>
+    </div>
+  )
+}
+
 export default function WorkerApp() {
   return (
     <Suspense fallback={null}>
@@ -690,6 +1065,18 @@ function WorkerAppInner() {
   const [preview, setPreview] = useState<PreviewMode>("auto")
   const recognitionRef = useRef<VoiceCaptureController | null>(null)
 
+  const speakWorkerReply = useCallback((text: string, purpose: VoicePurpose = "reply", finalState: WaveState = "rest") => {
+    setWaveState("speaking")
+    void playVSpeech(text, {
+      apiUrl: API_URL,
+      purpose,
+      onEnd: () => {
+        setWaveState(finalState)
+        if (finalState === "confirmed") setTimeout(() => setWaveState("rest"), 2200)
+      },
+    })
+  }, [])
+
   const fetchOffer = useCallback(async () => {
     setLoading(true)
     setMessage("")
@@ -708,6 +1095,7 @@ function WorkerAppInner() {
     setOffer(null)
     setMessage("")
     setPendingVoiceAction(null)
+    cancelVSpeech()
   }, [workerId])
 
   useEffect(() => { fetchOffer() }, [fetchOffer])
@@ -717,7 +1105,9 @@ function WorkerAppInner() {
     setActing(true)
     try {
       await fetch(`${API_URL}/v1/workers/${workerId}/offers/${offer.id}/${action}`, { method: "POST" })
-      setMessage(action === "accept" ? "Shift accepted! Pre-shift briefing on the way." : "Passed — finding your next match…")
+      const reply = action === "accept" ? "Shift accepted! Pre-shift briefing on the way." : "Passed — finding your next match…"
+      setMessage(reply)
+      speakWorkerReply(reply, action === "accept" ? "confirmation" : "reply", action === "accept" ? "confirmed" : "rest")
       setPendingVoiceAction(null)
       setOffer(null)
       if (action === "decline") setTimeout(fetchOffer, 1200)
@@ -726,7 +1116,7 @@ function WorkerAppInner() {
     } finally {
       setActing(false)
     }
-  }, [offer, fetchOffer, workerId])
+  }, [offer, fetchOffer, speakWorkerReply, workerId])
 
   const submitVoiceCommand = useCallback(async (transcript: string) => {
     const text = transcript.trim()
@@ -749,23 +1139,25 @@ function WorkerAppInner() {
         actionExecuted?: boolean
       } | null
       if (!res.ok || !data) {
-        setMessage("V could not handle that voice command.")
-        setWaveState("rest")
+        const reply = "I could not handle that voice command."
+        setMessage(reply)
+        speakWorkerReply(reply)
         return
       }
-      setMessage(data.reply ?? "V heard you.")
+      const reply = data.reply ?? "I heard you."
+      setMessage(reply)
       setPendingVoiceAction(data.requiresConfirmation ? data.pendingAction ?? null : null)
       if (data.actionExecuted) {
         setOffer(null)
         setTimeout(fetchOffer, 1200)
       }
-      setWaveState("speaking")
-      setTimeout(() => setWaveState("rest"), 1800)
+      speakWorkerReply(reply, data.actionExecuted ? "confirmation" : "reply", data.actionExecuted ? "confirmed" : "rest")
     } catch {
-      setMessage("V is unreachable - please try again or use the buttons.")
-      setWaveState("rest")
+      const reply = "I am unreachable - please try again or use the buttons."
+      setMessage(reply)
+      speakWorkerReply(reply)
     }
-  }, [acting, fetchOffer, loading, pendingVoiceAction, workerId])
+  }, [acting, fetchOffer, loading, pendingVoiceAction, speakWorkerReply, workerId])
 
   // Tap the sphere to talk to V; auto-stops on silence, 30s cap.
   const startListening = useCallback(() => {
@@ -798,6 +1190,7 @@ function WorkerAppInner() {
 
   const navItems: NavItem[] = [
     { id: "deck", label: "Shifts", icon: <NavIcon name="deck" /> },
+    { id: "schedule", label: "Schedule", icon: <NavIcon name="schedule" /> },
     { id: "earnings", label: "Earnings", icon: <NavIcon name="earnings" /> },
     { id: "passport", label: "Passport", icon: <NavIcon name="passport" /> },
     { id: "profile", label: "Profile", icon: <NavIcon name="profile" /> },
@@ -805,7 +1198,7 @@ function WorkerAppInner() {
 
   const statusLabel =
     waveState === "listening" ? "Listening… tap to stop" :
-    waveState === "speaking" ? "V is responding…" : "Tap to talk to V"
+    waveState === "speaking" ? "I'm responding…" : "Tap to talk to V"
 
   const footer = activeTab === "deck" && offer ? (
     <div style={{ padding: "12px 20px 16px", display: "flex", gap: 12, width: "100%", maxWidth: 460, margin: "0 auto" }}>
@@ -831,7 +1224,7 @@ function WorkerAppInner() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "4px 20px 12px", width: "100%", maxWidth: 460, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 8 }}>
             <span style={{ color: offer ? "var(--success)" : message ? "var(--warning)" : "var(--muted)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              {offer ? "V found you a match" : loading ? "V is searching…" : message || "No active offer"}
+              {offer ? "I found you a match" : loading ? "I'm searching…" : message || "No active offer"}
             </span>
           </div>
 
@@ -898,13 +1291,17 @@ function WorkerAppInner() {
               <div style={{ textAlign: "center" }}>
                 {message && !loading && <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>{message}</p>}
                 <button onClick={fetchOffer} disabled={loading} style={{ background: loading ? "var(--surface-2)" : "var(--accent)", border: "none", color: loading ? "var(--muted)" : "#fff", borderRadius: 16, padding: "14px 28px", fontSize: 14, fontWeight: 600 }}>
-                  {loading ? "V is searching…" : "Load next shift"}
+                  {loading ? "I'm searching…" : "Load next shift"}
                 </button>
               </div>
             )}
           </div>
           <ShiftHistory workerId={workerId} apiUrl={API_URL} />
         </div>
+      )}
+
+      {activeTab === "schedule" && (
+        <ScheduleTab workerId={workerId} apiUrl={API_URL} onOpenDeck={() => setActiveTab("deck")} />
       )}
 
       {activeTab === "passport" && <PassportTab workerId={workerId} apiUrl={API_URL} />}

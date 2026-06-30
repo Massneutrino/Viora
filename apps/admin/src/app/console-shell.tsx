@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { VoiceMuteToggle } from "@viora/ui";
 import { AdminHeader } from "./admin-header";
 import { VConsole } from "./v-console";
 import {
@@ -14,10 +15,11 @@ import {
 
 type NavId = "overview" | "operations" | "workflows" | "pilot" | "sandbox";
 
-const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: ReactNode }[] = [
+const NAV: { id: NavId; label: string; shortLabel: string; title: string; subtitle: string; icon: ReactNode }[] = [
   {
     id: "overview",
     label: "Overview",
+    shortLabel: "Overview",
     title: "Overview",
     subtitle: "Live analytics and platform health.",
     icon: <GridIcon />,
@@ -25,6 +27,7 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
   {
     id: "operations",
     label: "Operations",
+    shortLabel: "Ops",
     title: "Operations",
     subtitle: "Compliance, approvals queue, unfilled shifts and the audit trail.",
     icon: <PulseIcon />,
@@ -32,6 +35,7 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
   {
     id: "pilot",
     label: "Pilot leads",
+    shortLabel: "Leads",
     title: "Pilot leads",
     subtitle: "Interest captured from the marketing site.",
     icon: <InboxIcon />,
@@ -39,6 +43,7 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
   {
     id: "workflows",
     label: "V Workflows",
+    shortLabel: "Flows",
     title: "V Workflows",
     subtitle: "Versioned playbooks and safe simulations for V's agent interactions.",
     icon: <WorkflowIcon />,
@@ -46,6 +51,7 @@ const NAV: { id: NavId; label: string; title: string; subtitle: string; icon: Re
   {
     id: "sandbox",
     label: "Sandbox & dev",
+    shortLabel: "Dev",
     title: "Sandbox & dev tools",
     subtitle: "Deterministic scenarios and demo shortcuts.",
     icon: <BeakerIcon />,
@@ -56,7 +62,6 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
   const [active, setActive] = useState<NavId>("overview");
   const [narrow, setNarrow] = useState(false);
   const [vOpen, setVOpen] = useState(true);
-  const [navCollapsed, setNavCollapsed] = useState(false);
   const [vResetKey, setVResetKey] = useState(0);
   const wasNarrow = useRef<boolean | null>(null);
 
@@ -83,7 +88,6 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
 
   const current = NAV.find((n) => n.id === active) ?? NAV[0];
 
-  const collapsed = !narrow && navCollapsed;
   const rail = (
     <nav
       style={
@@ -98,59 +102,19 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
               flexShrink: 0,
             }
           : {
-              width: navCollapsed ? 64 : 220,
+              width: 82,
               flexShrink: 0,
               display: "flex",
               flexDirection: "column",
-              alignItems: navCollapsed ? "center" : "stretch",
-              gap: 2,
-              padding: navCollapsed ? "1.25rem 0.5rem" : "1.25rem 0.85rem",
+              alignItems: "center",
+              gap: 4,
+              padding: "1.25rem 0.55rem",
               borderRight: "0.5px solid var(--border)",
               background: "var(--surface)",
               overflowY: "auto",
-              transition: "width 0.15s",
             }
       }
     >
-      {!narrow && (
-        <button
-          type="button"
-          onClick={() => setNavCollapsed((c) => !c)}
-          aria-label={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={navCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          style={{
-            width: 30,
-            height: 30,
-            flexShrink: 0,
-            alignSelf: navCollapsed ? "center" : "flex-start",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 8,
-            border: "0.5px solid var(--border)",
-            background: "var(--surface)",
-            color: "var(--muted)",
-            marginBottom: "0.6rem",
-          }}
-        >
-          <PanelLeftIcon />
-        </button>
-      )}
-      {!collapsed && !narrow && (
-        <p
-          style={{
-            fontSize: "0.6875rem",
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            color: "var(--faint)",
-            padding: "0 0.65rem",
-            marginBottom: "0.6rem",
-          }}
-        >
-          Console
-        </p>
-      )}
       {NAV.map((n) => {
         const isActive = n.id === active;
         return (
@@ -170,17 +134,30 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
               fontWeight: isActive ? 600 : 500,
               transition: "background 0.15s, color 0.15s",
               whiteSpace: "nowrap",
-              ...(collapsed
-                ? { width: 40, height: 40, justifyContent: "center", padding: 0 }
-                : {
+              ...(narrow
+                ? {
                     gap: 10,
-                    padding: narrow ? "0.5rem 0.75rem" : "0.55rem 0.65rem",
+                    padding: "0.5rem 0.75rem",
                     fontSize: "0.875rem",
+                  }
+                : {
+                    width: 66,
+                    minHeight: 58,
+                    justifyContent: "center",
+                    flexDirection: "column",
+                    gap: 5,
+                    padding: "0.5rem 0.25rem",
+                    fontSize: "0.625rem",
+                    textAlign: "center",
+                    lineHeight: 1.15,
+                    whiteSpace: "normal",
                   }),
             }}
           >
             {n.icon}
-            {!collapsed && <span>{n.label}</span>}
+            <span style={narrow ? undefined : { maxWidth: 62, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {narrow ? n.label : n.shortLabel}
+            </span>
           </button>
         );
       })}
@@ -201,7 +178,8 @@ export function ConsoleShell({ data }: { data: ConsoleData }) {
         <h2 style={{ fontSize: "1.0625rem", fontWeight: 600 }}>Ask V</h2>
         <p style={{ color: "var(--muted)", fontSize: "0.8125rem" }}>Grounded in live ops data</p>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)" }}>
+        <VoiceMuteToggle size={16} />
         <button
           type="button"
           onClick={() => setVResetKey((k) => k + 1)}
@@ -345,24 +323,6 @@ function iconProps() {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
   };
-}
-
-function PanelLeftIcon() {
-  return (
-    <svg
-      width={17}
-      height={17}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18" />
-    </svg>
-  );
 }
 
 function GridIcon() {

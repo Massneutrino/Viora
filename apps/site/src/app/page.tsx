@@ -6,6 +6,8 @@ import { VConversation, type VConversationHandle } from "./v-conversation";
 import { QuickFormModal } from "./quick-form";
 import { WhatsDifferent } from "./whats-different";
 
+type LeadType = "employer" | "worker";
+
 const EXAMPLES = [
   "I need cover for tomorrow, 8:30–3:30",
   "Jack called in sick — I need emergency cover",
@@ -114,16 +116,12 @@ function AudienceCard({
   icon,
   title,
   copy,
-  action,
-  primary,
   onClick,
 }: {
   id: string;
   icon: ReactNode;
   title: string;
   copy: string;
-  action: string;
-  primary?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -133,7 +131,6 @@ function AudienceCard({
         <strong>{title}</strong>
         <small>{copy}</small>
       </span>
-      <span className={primary ? "card-action primary" : "card-action"}>{action}</span>
     </button>
   );
 }
@@ -152,14 +149,14 @@ function ProofItem({ icon, title, copy }: { icon: ReactNode; title: string; copy
 
 export default function PilotPage() {
   const [waveState, setWaveState] = useState<WaveState>("rest");
-  const [seed, setSeed] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [formType, setFormType] = useState<LeadType>("employer");
   const typed = useTypewriter(EXAMPLES);
   const vcRef = useRef<VConversationHandle>(null);
 
-  const seedConversation = (text: string) => {
-    setSeed(text);
-    document.getElementById("talk-to-v")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const openForm = (type: LeadType) => {
+    setFormType(type);
+    setFormOpen(true);
   };
 
   return (
@@ -181,7 +178,9 @@ export default function PilotPage() {
           <span className="hero-eyebrow">
             <Icon name="cap" /> Flexible staffing — starting with education
           </span>
-          <h1>Tell V. Fill the shift. Find work.</h1>
+          <h1>
+            Tell V.<br />Fill Shifts. Find Work.
+          </h1>
           <p className="hero-typewriter">
             &ldquo;{typed}
             <span className="tw-caret">▍</span>&rdquo;
@@ -200,25 +199,22 @@ export default function PilotPage() {
           </div>
         </div>
 
-        <VConversation ref={vcRef} seed={seed} onStateChange={setWaveState} onOpenForm={() => setFormOpen(true)} />
+        <VConversation ref={vcRef} onStateChange={setWaveState} onOpenForm={() => openForm("employer")} />
 
         <div className="audience-grid">
           <AudienceCard
             id="organisations"
             icon={<Icon name="building" />}
             title="For organisations"
-            copy="Real-time cover. Fully compliant. Lower cost."
-            action="I'm hiring"
-            primary
-            onClick={() => seedConversation("I need to fill shifts")}
+            copy="Real-time cover. Compliance built in. Lower agency overhead."
+            onClick={() => openForm("employer")}
           />
           <AudienceCard
             id="workers"
             icon={<Icon name="person" />}
             title="For workers"
-            copy="Better shifts. Fair pay. You're in control."
-            action="I want work"
-            onClick={() => seedConversation("I'm looking for work")}
+            copy="Better-fit shifts. Fairer pay. You stay in control."
+            onClick={() => openForm("worker")}
           />
         </div>
 
@@ -246,7 +242,7 @@ export default function PilotPage() {
         <small>© {2026} Viora</small>
       </footer>
 
-      <QuickFormModal open={formOpen} onClose={() => setFormOpen(false)} />
+      <QuickFormModal open={formOpen} initialType={formType} onClose={() => setFormOpen(false)} />
     </main>
   );
 }

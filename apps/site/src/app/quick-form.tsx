@@ -3,7 +3,17 @@
 import { useEffect } from "react";
 import { LeadForm } from "./lead-form";
 
-export function QuickFormModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+type LeadType = "employer" | "worker";
+
+export function QuickFormModal({
+  open,
+  onClose,
+  initialType = "employer",
+}: {
+  open: boolean;
+  onClose: () => void;
+  initialType?: LeadType;
+}) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -19,10 +29,10 @@ export function QuickFormModal({ open, onClose }: { open: boolean; onClose: () =
         <div className="qf-head">
           <strong>Join the pilot</strong>
           <button type="button" className="qf-close" onClick={onClose} aria-label="Close">
-            ×
+            x
           </button>
         </div>
-        <LeadForm context="modal" onDone={onClose} />
+        <LeadForm context="modal" initialType={initialType} onDone={onClose} />
       </div>
     </div>
   );

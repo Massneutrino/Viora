@@ -205,7 +205,7 @@ async function refreshCanonicalDemoRequest(input: {
         status: "pending",
         payRate: 150,
         fitExplanation:
-          "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so V can confirm this instantly.",
+          "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so I can confirm this instantly.",
         expiresAt: input.offerExpiresAt,
       },
     });
@@ -1378,7 +1378,7 @@ async function main() {
       status: "pending",
       payRate: 150,
       fitExplanation:
-        "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so V can confirm this instantly.",
+        "Greenfield Primary is a short hop from you and you've covered KS2 here before. Your DBS, QTS and safeguarding are all verified, so I can confirm this instantly.",
       expiresAt: offerExpiry,
     },
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { PixelSphere } from "@viora/ui";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
@@ -23,11 +23,11 @@ function successCopy(type: LeadType) {
   return type === "employer"
     ? {
         title: "You're on the list.",
-        body: "We'll be in touch to set up your organisation — we onboard pilot users in waves.",
+        body: "I will get in touch to set up your organisation — pilot users are onboarded in waves.",
       }
     : {
         title: "You're on the early worker pool.",
-        body: "V will reach out as soon as we have shifts that fit you.",
+        body: "I will get in touch as soon as I have shifts that fit you.",
       };
 }
 
@@ -41,15 +41,22 @@ export function LeadForm({
   context,
   onDone,
   header,
+  initialType = "employer",
 }: {
   context: Context;
   onDone?: () => void;
+  initialType?: LeadType;
   /** Optional intro shown above the form and hidden in the success state (page chrome). */
   header?: ReactNode;
 }) {
-  const [type, setType] = useState<LeadType>("employer");
+  const [type, setType] = useState<LeadType>(initialType);
   const [state, setState] = useState<SubmitState>("idle");
   const isEmployer = type === "employer";
+
+  useEffect(() => {
+    setType(initialType);
+    setState("idle");
+  }, [initialType]);
 
   function selectType(next: LeadType) {
     setType(next);
@@ -168,11 +175,11 @@ export function LeadForm({
             </label>
             <label>
               Roles (optional)
-              <input name="workerRoleTypes" placeholder="Supply teacher, TA, security..." />
+              <input name="workerRoleTypes" placeholder="Supply teacher, TA, cover supervisor..." />
             </label>
             <label>
               Compliance (optional)
-              <input name="complianceReadiness" placeholder="DBS ready, QTS, SIA, Right to Work..." />
+              <input name="complianceReadiness" placeholder="DBS ready, QTS, Right to Work..." />
             </label>
           </>
         )}

@@ -1,15 +1,19 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, Suspense } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, type CSSProperties } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   AppShell, PixelSphere, SectionCard, SettingRow, EditableField, ChipsField, AccountRow, Avatar,
-  startVoiceCapture, type VoiceCaptureController, type WaveState, type NavItem, type PreviewMode,
+  cancelVSpeech, playVSpeech, startVoiceCapture, type VoiceCaptureController, type WaveState, type NavItem, type PreviewMode,
+  SegmentedToggle, WeekStrip, WeekNav, HourTimeline, ScheduleEventCard, CoverageDonut, ScheduleEmpty, type WeekStripDay,
+  dayKey, dayRange, startOfWeekMonday, addWeeks, addDaysUtc, weekRangeFromAnchor,
+  formatWeekdayShort, formatDayNumber, formatWeekRangeLabel, formatEventTimeRange, formatEventDayLabel, DEFAULT_TZ,
 } from "@viora/ui"
+import type { ScheduleResponse, ScheduleEvent } from "@viora/domain"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200"
 const DEFAULT_ORG_ID = "demo-org"
-const API_FALLBACK_MESSAGE = "V is having trouble connecting to the intake service. I have not created a booking yet - please try again in a moment."
+const API_FALLBACK_MESSAGE = "I am having trouble connecting to the intake service. I have not created a booking yet - please try again in a moment."
 
 function humanize(s: string): string {
   return s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
@@ -235,7 +239,7 @@ function HomeTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
   )
 }
 
-function BookingsTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+function BookingsListView({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
   const [data, setData] = useState<BookingData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -269,6 +273,235 @@ function BookingsTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
           </SettingRow>
         )) : <SettingRow label="No bookings yet" />}
       </SectionCard>
+    </div>
+  )
+}
+
+// ── Bookings: Schedule (coverage) view ──────────────────────────────────────
+// Reads only confirmed_shift + open_request from the org schedule endpoint.
+// Worker availability is never fetched or rendered here (and the API excludes it).
+
+const scheduleNote: CSSProperties = { padding: "26px 16px", textAlign: "center", color: "var(--muted)", fontSize: 12 }
+const scheduleSubLabel: CSSProperties = { color: "var(--muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, paddingLeft: 4 }
+
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 899px)")
+    const on = () => setNarrow(mq.matches)
+    on()
+    mq.addEventListener("change", on)
+    return () => mq.removeEventListener("change", on)
+  }, [])
+  return narrow
+}
+
+function SiteChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} style={{
+      border: active ? "0.5px solid rgba(31,77,255,0.3)" : "0.5px solid var(--border)",
+      background: active ? "rgba(31,77,255,0.1)" : "var(--surface)",
+      color: active ? "var(--accent)" : "var(--muted)",
+      borderRadius: 20, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+    }}>{label}</button>
+  )
+}
+
+function BookingsTab({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const [view, setView] = useState<"list" | "schedule">("list")
+  return (
+    <>
+      <div style={{ padding: "10px 20px 0", display: "flex", justifyContent: "center" }}>
+        <SegmentedToggle value={view} onChange={setView} options={[{ id: "list", label: "List" }, { id: "schedule", label: "Schedule" }]} />
+      </div>
+      {view === "list"
+        ? <BookingsListView orgId={orgId} apiUrl={apiUrl} />
+        : <BookingsScheduleView orgId={orgId} apiUrl={apiUrl} />}
+    </>
+  )
+}
+
+function BookingsScheduleView({ orgId, apiUrl }: { orgId: string; apiUrl: string }) {
+  const narrow = useIsNarrow()
+  const [weekAnchor, setWeekAnchor] = useState<Date>(() => startOfWeekMonday(new Date()))
+  const [view, setView] = useState<"day" | "hour">("day")
+  const [siteId, setSiteId] = useState<string | null>(null)
+  const [sites, setSites] = useState<{ id: string; name: string }[]>([])
+  const [resp, setResp] = useState<ScheduleResponse | null>(null)
+  const [dayHours, setDayHours] = useState<ScheduleResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedKey, setSelectedKey] = useState<string>(() => dayKey(new Date(), DEFAULT_TZ))
+
+  const tz = resp?.range.timezone ?? DEFAULT_TZ
+  const { from, to } = useMemo(() => weekRangeFromAnchor(weekAnchor), [weekAnchor])
+  const todayKey = useMemo(() => dayKey(new Date(), tz), [tz])
+  const thisWeekFrom = useMemo(() => weekRangeFromAnchor(startOfWeekMonday(new Date())).from, [])
+  const siteParam = siteId ? `&siteId=${encodeURIComponent(siteId)}` : ""
+
+  // Org sites for the filter chips (org profile — no worker availability involved).
+  useEffect(() => {
+    let active = true
+    fetch(`${apiUrl}/v1/organisations/${orgId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && Array.isArray(d?.organisation?.sites)) {
+          setSites(d.organisation.sites.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })))
+        }
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [orgId, apiUrl])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${apiUrl}/v1/organisations/${orgId}/schedule?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&granularity=day${siteParam}`)
+      if (!res.ok) { setError("Could not load schedule."); setResp(null); return }
+      setResp(await res.json())
+    } catch { setError("Could not load schedule."); setResp(null) }
+    finally { setLoading(false) }
+  }, [apiUrl, orgId, from, to, siteParam])
+  useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const keys = Array.from({ length: 7 }, (_, i) => dayKey(addDaysUtc(new Date(from), i), tz))
+    if (!keys.includes(selectedKey)) setSelectedKey(keys.includes(todayKey) ? todayKey : keys[0])
+  }, [from, tz, selectedKey, todayKey])
+
+  const loadDayHours = useCallback(async () => {
+    const { from: dFrom, to: dTo } = dayRange(selectedKey, tz)
+    try {
+      const res = await fetch(`${apiUrl}/v1/organisations/${orgId}/schedule?from=${encodeURIComponent(dFrom)}&to=${encodeURIComponent(dTo)}&granularity=hour${siteParam}`)
+      setDayHours(res.ok ? await res.json() : null)
+    } catch { setDayHours(null) }
+  }, [apiUrl, orgId, selectedKey, tz, siteParam])
+  useEffect(() => { if (view === "hour") loadDayHours() }, [view, loadDayHours])
+
+  const days: WeekStripDay[] = useMemo(() => {
+    const fromDate = new Date(from)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = addDaysUtc(fromDate, i)
+      const key = dayKey(d, tz)
+      const dayEvents = resp?.days.find((x) => x.key === key)?.events ?? []
+      const counts = { confirmed: 0, open: 0 }
+      for (const e of dayEvents) {
+        if (e.kind === "confirmed_shift") counts.confirmed++
+        else if (e.kind === "open_request") counts.open++
+      }
+      return {
+        key,
+        weekdayLabel: formatWeekdayShort(d, tz),
+        dayNumber: formatDayNumber(d, tz),
+        isToday: key === todayKey,
+        counts: dayEvents.length ? counts : undefined,
+      }
+    })
+  }, [from, tz, resp, todayKey])
+
+  const selectedDay = resp?.days.find((d) => d.key === selectedKey)
+  const dayEvents = selectedDay?.events ?? []
+  const dayLabel = selectedDay?.label ?? formatEventDayLabel(`${selectedKey}T12:00:00Z`, tz)
+  const confirmed = dayEvents.filter((e) => e.kind === "confirmed_shift")
+  const open = dayEvents.filter((e) => e.kind === "open_request")
+
+  const bySite = useMemo(() => {
+    const groups = new Map<string, { name: string; events: ScheduleEvent[] }>()
+    for (const e of dayEvents) {
+      const id = e.meta.siteId ?? "—"
+      const name = e.meta.siteName ?? "Unassigned site"
+      if (!groups.has(id)) groups.set(id, { name, events: [] })
+      groups.get(id)!.events.push(e)
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [dayEvents])
+
+  const renderCard = (ev: ScheduleEvent) => {
+    const time = formatEventTimeRange(ev)
+    if (ev.kind === "open_request") {
+      return (
+        <ScheduleEventCard kind={ev.kind} title={ev.title} timeLabel={time}
+          subtitle={ev.meta.siteName ? `${ev.meta.siteName} · Open cover` : "Open cover"}
+          amountLabel={ev.meta.payRate != null ? formatGbp(ev.meta.payRate) : undefined}
+          pill={{ label: "Open cover", tone: "warning" }} />
+      )
+    }
+    const atRisk = ev.status === "at_risk"
+    return (
+      <ScheduleEventCard kind={ev.kind} title={ev.title} timeLabel={time}
+        subtitle={[ev.meta.siteName, ev.meta.workerName].filter(Boolean).join(" · ") || undefined}
+        amountLabel={ev.meta.payRate != null ? formatGbp(ev.meta.payRate) : undefined}
+        pill={{ label: atRisk ? "At risk" : "Confirmed", tone: atRisk ? "warning" : "success" }} />
+    )
+  }
+
+  const mainCol = (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+      <WeekNav rangeLabel={formatWeekRangeLabel(from, tz)}
+        onPrev={() => setWeekAnchor((a) => addWeeks(a, -1))}
+        onNext={() => setWeekAnchor((a) => addWeeks(a, 1))}
+        onThisWeek={() => setWeekAnchor(startOfWeekMonday(new Date()))}
+        isThisWeek={from === thisWeekFrom} />
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <SegmentedToggle size="sm" value={view} onChange={setView} options={[{ id: "day", label: "Day" }, { id: "hour", label: "Hour" }]} />
+      </div>
+      <WeekStrip days={days} selectedKey={selectedKey} onSelect={setSelectedKey} />
+      {error ? (
+        <div style={scheduleNote}>{error} · <button type="button" onClick={load} style={{ background: "none", border: "none", color: "var(--accent)", fontWeight: 600, cursor: "pointer" }}>Retry</button></div>
+      ) : loading && !resp ? (
+        <div style={scheduleNote}>Loading schedule…</div>
+      ) : view === "hour" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <p style={scheduleSubLabel}>{dayLabel}</p>
+          {dayHours ? <HourTimeline hours={dayHours.hours ?? []} renderCard={renderCard} /> : <div style={scheduleNote}>Loading hours…</div>}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <p style={scheduleSubLabel}>{dayLabel}</p>
+          {dayEvents.length ? bySite.map((g) => (
+            <div key={g.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <p style={{ color: "var(--text)", fontSize: 12, fontWeight: 700, margin: 0 }}>{g.name}</p>
+              {g.events.map((ev) => <div key={ev.id}>{renderCard(ev)}</div>)}
+            </div>
+          )) : <ScheduleEmpty label="No shifts or open cover this day." />}
+        </div>
+      )}
+    </div>
+  )
+
+  const sidePanel = (
+    <div style={{ width: narrow ? "100%" : 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+      <SectionCard title="Coverage">
+        <div style={{ padding: "16px 16px 18px", display: "flex", justifyContent: "center" }}>
+          <CoverageDonut filled={confirmed.length} open={open.length} />
+        </div>
+      </SectionCard>
+      <SectionCard title={`Open cover (${open.length})`}>
+        {open.length ? open.map((ev) => (
+          <SettingRow key={ev.id} label={ev.title} sublabel={`${ev.meta.siteName ?? ""} · ${formatEventTimeRange(ev)}`}>
+            {ev.meta.payRate != null ? formatGbp(ev.meta.payRate) : null}
+          </SettingRow>
+        )) : <SettingRow label="All cover filled" />}
+      </SectionCard>
+      <SectionCard title={`Confirmed (${confirmed.length})`}>
+        {confirmed.length ? confirmed.map((ev) => (
+          <SettingRow key={ev.id} label={ev.meta.workerName ?? ev.title} sublabel={`${ev.meta.siteName ?? ""} · ${formatEventTimeRange(ev)}`} />
+        )) : <SettingRow label="No confirmed shifts" />}
+      </SectionCard>
+    </div>
+  )
+
+  return (
+    <div style={{ padding: "8px 20px 24px", width: "100%", maxWidth: 1060, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <SiteChip label="All sites" active={siteId === null} onClick={() => setSiteId(null)} />
+        {sites.map((s) => <SiteChip key={s.id} label={s.name} active={siteId === s.id} onClick={() => setSiteId(s.id)} />)}
+      </div>
+      <div style={{ display: "flex", flexDirection: narrow ? "column" : "row", gap: 16, alignItems: "flex-start" }}>
+        {mainCol}
+        {sidePanel}
+      </div>
     </div>
   )
 }
@@ -518,7 +751,7 @@ function SettingsTab({
               <button onClick={() => void deleteMemory(memory.id)} style={{ border: "none", background: "transparent", color: "#b42318", fontSize: 11, cursor: "pointer" }}>Delete</button>
             </div>
           </SettingRow>
-        )) : <SettingRow label="No memories yet" sublabel="V will learn from confirmed events and updates." />}
+        )) : <SettingRow label="No memories yet" sublabel="I will learn from confirmed events and updates." />}
         <SettingRow label="Add memory" sublabel="Create a confirmed operational memory for V.">
           <button onClick={() => void addMemory()} style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>Add</button>
         </SettingRow>
@@ -562,6 +795,7 @@ function EmployerAppInner() {
   useEffect(() => {
     setMessages([])
     setConvId(undefined)
+    cancelVSpeech()
     setWaveState("rest")
   }, [orgId])
 
@@ -583,14 +817,25 @@ function EmployerAppInner() {
       const data = await res.json().catch(() => ({}))
       if (data.conversationId) setConvId(data.conversationId)
       const reply = res.ok && typeof data.message === "string" ? data.message : API_FALLBACK_MESSAGE
-      setWaveState("speaking")
       setMessages(prev => [...prev, { role: "v", text: reply, ts: now() }])
       const confirmed = /confirm|booked|booking confirmed/i.test(reply)
-      setTimeout(() => setWaveState(confirmed ? "confirmed" : "rest"), 1400)
-      if (confirmed) setTimeout(() => setWaveState("rest"), 3600)
+      setWaveState("speaking")
+      void playVSpeech(reply, {
+        apiUrl: API_URL,
+        purpose: confirmed ? "confirmation" : "reply",
+        onEnd: () => {
+          setWaveState(confirmed ? "confirmed" : "rest")
+          if (confirmed) setTimeout(() => setWaveState("rest"), 2200)
+        },
+      })
     } catch {
       setMessages(prev => [...prev, { role: "v", text: API_FALLBACK_MESSAGE, ts: now() }])
-      setWaveState("rest")
+      setWaveState("speaking")
+      void playVSpeech(API_FALLBACK_MESSAGE, {
+        apiUrl: API_URL,
+        purpose: "reply",
+        onEnd: () => setWaveState("rest"),
+      })
     } finally {
       setLoading(false)
     }
@@ -624,8 +869,8 @@ function EmployerAppInner() {
   const stateLabel: Record<WaveState, string> = {
     rest: "Tell V what you need",
     listening: "Listening… tap to stop",
-    processing: "V is working on it…",
-    speaking: "V is responding",
+    processing: "I'm working on it…",
+    speaking: "I'm responding",
     confirmed: "Booking confirmed",
     risk: "Action needed",
   }
@@ -726,7 +971,7 @@ function EmployerAppInner() {
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
               <PixelSphere state="processing" size={26} />
               <div style={{ background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: "4px 14px 14px 14px", padding: "9px 13px" }}>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}>V is thinking…</span>
+                <span style={{ color: "var(--muted)", fontSize: 13 }}>I'm thinking…</span>
               </div>
             </div>
           )}

@@ -300,7 +300,7 @@ export const whatsappRoutes: FastifyPluginAsync = async (app) => {
           );
 
           if (message.type !== "text" || !message.text?.body) {
-            const unsupportedText = "V can only handle text WhatsApp messages for this pilot. Please send the booking details as a message.";
+            const unsupportedText = "I can only handle text WhatsApp messages for this pilot. Please send the booking details as a message.";
             const sendResult = await sendWhatsAppText(app, message.from, unsupportedText);
             await auditWebhook(
               app,

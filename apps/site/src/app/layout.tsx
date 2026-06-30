@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:6103";
-const TITLE = "Viora — Tell V. Fill the shift.";
+const TITLE = "Viora — Tell V. Fill Shifts. Find Work.";
 const DESCRIPTION =
   "Tell V what you need. V finds the people, runs the checks, and books the shift — flexible staffing starting with education.";
 

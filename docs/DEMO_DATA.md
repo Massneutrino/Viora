@@ -167,7 +167,7 @@ curl -s -X POST http://localhost:6200/v1/voice/speech \
   --output viora-v-sample.mp3
 ```
 
-The route writes `voice.speech.generate` audit events. Repeating the same text with the same
+The route writes `voice.speech.generate` audit events. Repeating the same text and purpose with the same
 provider/model/voice/ElevenLabs voice settings/style version returns cached audio.
 
 Transcribe a local browser recording or voice note:

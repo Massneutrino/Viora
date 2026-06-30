@@ -6,12 +6,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 **Last reviewed:** 2026-06-30
 
-**Remaining for Phase 0 close-out (2 schedule UI items):** Engineering close-out is complete for the core loop, guardrails, monitoring, and schedule APIs. Worker/employer schedule **UI tabs** remain in the parked schedule UI pass (`.cursor/plans/phase_0_schedule_system_8972282e.plan.md`). External Google/Outlook/iCal sync remains Phase 1.
+**Phase 0 close-out:** Engineering close-out is complete for the core loop, guardrails, monitoring, schedule APIs, and the worker/employer schedule **UI** (worker `Schedule` tab and employer Bookings `List | Schedule` view). External Google/Outlook/iCal sync remains Phase 1.
 
 **Recent fixes (review follow-up):**
 - Phase 0 engineering close-out: `monitorBooking()` now marks bookings `at_risk` when a shift is within 4h or overdue without check-in (`packages/agents/src/employer-context-agent.ts`), exposed at `POST /v1/admin/bookings/:id/monitor` with admin **Monitor** action in `bookings-ops.tsx`, and covered by `npm run test:phase0` (`booking.monitor` audit + L1 approvals queue → approve → broadcast).
 - Human approval queue admin UI confirmed shipped — `apps/admin/src/app/approvals-queue.tsx` on the Ops tab (approve/reject + refresh); backlog entry corrected from stale "API-only".
-- Phase 0 schedule foundation added: shared schedule DTOs/helpers in `packages/domain/src/schedule.ts`, first-class worker availability blocks/patterns in Prisma, audited schedule/availability API routes under `/v1/workers/:id/schedule`, `/v1/organisations/:id/schedule`, and `/v1/workers/:id/availability/*`, seeded demo availability, hourly `granularity=hour` buckets, and `npm run test:phase0` smoke assertions. UI implementation is intentionally left for the schedule UI pass.
+- Phase 0 schedule foundation added: shared schedule DTOs/helpers in `packages/domain/src/schedule.ts`, first-class worker availability blocks/patterns in Prisma, audited schedule/availability API routes under `/v1/workers/:id/schedule`, `/v1/organisations/:id/schedule`, and `/v1/workers/:id/availability/*`, seeded demo availability, hourly `granularity=hour` buckets, and `npm run test:phase0` smoke assertions.
+- Phase 0 schedule **UI** shipped: worker `Schedule` tab (week strip + selected-day agenda, Day | Hour toggle, mark-unavailable block CRUD, weekly availability pattern editor, pending offers deep-link back to the deck) and employer Bookings `List | Schedule` coverage view (coverage by day/site, open vs confirmed, coverage donut, site filter chips). Shared audience-neutral widgets live in `@viora/ui` (`packages/ui/src/components/schedule/`); the employer view never renders worker availability (enforced by the org schedule API).
 - V Workflows milestone added as an admin-only, code-defined playbook viewer/simulator: shared workflow registry and validator in `packages/domain/src/workflows.ts`, read-only admin endpoints under `/v1/admin/v-workflows`, deterministic simulation with a single `workflow.simulate` audit event, Admin **V Workflows** tab with lightweight SVG/HTML graph rendering, and `npm run test:workflows` coverage. Live runtime orchestration remains unchanged.
 - MCP architecture decision documented: MCP is not a Phase 0 core architecture dependency; future MCP belongs behind a separate, permissioned edge gateway that delegates to existing API/agent/domain services and preserves audit, guardrail, compliance, and memory privacy boundaries.
 - Phase 0 close-out hardening completed: added `npm run test:phase0` (`scripts/smoke-phase0.mjs`) to run the API in-process and verify health, demo directory, all five sandbox scenarios, Dynamic Rate guardrail restore, worker offer DTOs, negotiations, and audit visibility.
@@ -19,6 +20,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - Intake benchmark hardening: `vAgent.parseIntent()` now deterministically defaults Standard Rate, preserves lightweight requirements keywords, resolves named sites from the provided site list, normalizes Dynamic Rate "up to" ceilings, and applies guardrail-driven missing fields before returning.
 - Close-out verification passed: `npm run typecheck`, `npm run build`, `npm run test:phase0`, `npm run test:memory`, and `npm run benchmark:intake -- --limit 10` (100% sample accuracy on the 10-sample fixture).
 - Server-side V voice provider layer added: `/v1/voice/speech` for cached TTS, `/v1/voice/transcribe` for raw-audio STT, `createVoiceClient()` provider switching, ElevenLabs/OpenAI TTS, OpenAI/Azure STT env config, audit events, and browser fallback across site/web/worker/admin voice surfaces.
+- Shared V speech output shipped across public site, employer web, worker web and admin console via `@viora/ui` (`playVSpeech`/`cancelVSpeech`): user-triggered V replies call `/v1/voice/speech` with browser speech fallback, and TTS cache identity is purpose-scoped.
 - Dynamic Rate demo support added as a dedicated sandbox scenario (`dynamic-rate-clearing`) with seeded worker pay floors and guardrail restore; Standard Rate remains the default Greenfield demo path.
 - Seed refreshes the canonical `demo-booking-request` onto a future date, recreates the pending seeded offer, and upserts Dynamic Rate worker pay floors so demo data does not go stale.
 - Demo operational fixture pack added: `npm run db:seed` now recreates fixed `demo-fixture-*` bookings, offers, shifts, timesheets, invoices and memory so every employer/worker navigation tab has realistic data.
@@ -123,8 +125,8 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 - ✅ Worker availability management API — pattern read/update plus audited create/edit/delete for unavailable blocks under `/v1/workers/:id/availability`.
 - ✅ Hourly timeframe support — schedule routes accept exact ISO datetimes and return hour buckets when `granularity=hour`; filtering uses overlap logic (`startAt < to && endAt > from`).
 - ✅ Seed + smoke coverage — seeded `demo-worker` availability blocks/pattern and `npm run test:phase0` assertions for worker schedule, employer schedule, hourly buckets, and availability audit events.
-- 🔲 Worker UI schedule tab — week strip + agenda + mark-unavailable flow, owned by the UI implementation pass.
-- 🔲 Employer UI schedule view — Bookings `List | Schedule` toggle with coverage-first agenda and site filters, owned by the UI implementation pass.
+- ✅ Worker UI schedule tab — `Schedule` tab in worker-web: week strip + selected-day agenda (confirmed shifts, pending offers, unavailable blocks), Day | Hour toggle, mark-unavailable block CRUD, and a weekly availability pattern editor; pending offers jump back into the deck/offer flow.
+- ✅ Employer UI schedule view — Bookings `List | Schedule` toggle in `apps/web`: coverage-by-day/site dashboard (open cover vs confirmed, coverage donut, site filter chips, Day | Hour toggle); reuses shared `@viora/ui` widgets and never renders worker availability.
 
 ## Local dev surfaces (visual testing)
 
@@ -203,7 +205,7 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 ## Parked / post-close-out
 
-- 🔲 **Schedule UI** — worker Schedule tab + employer Bookings `List | Schedule` view (plan: `.cursor/plans/phase_0_schedule_system_8972282e.plan.md`). Schedule/availability **APIs and smoke coverage are shipped**.
+- ✅ **Schedule UI** — worker Schedule tab + employer Bookings `List | Schedule` view shipped; shared widgets in `@viora/ui` (`packages/ui/src/components/schedule/`). Schedule/availability APIs and smoke coverage were already shipped.
 - 🔲 **Calendar OAuth / iCal sync** — Phase 1 (Google Calendar, Outlook); subscribe export builds on the existing `ScheduleEvent` mapper.
 - 🔲 **Optional LLM providers** — OpenAI provider extension; Gemini structured-schema cleanup.
 

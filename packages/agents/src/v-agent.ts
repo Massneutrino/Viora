@@ -1,5 +1,6 @@
 import { createLLMClient } from "./llm.js";
 import type { VAgent, ParsedBookingIntent, VIntakeContext } from "./types.js";
+import { normalizeVFirstPerson, V_FIRST_PERSON_VOICE_RULE } from "./v-copy.js";
 
 const INTENT_SCHEMA = {
   type: "object",
@@ -234,16 +235,18 @@ Rules:
 
   async clarify(missingFields: string[], context: Record<string, unknown>): Promise<string> {
     const llm = await createLLMClient({ task: "clarify" });
-    return llm.complete({
+    const text = await llm.complete({
       maxTokens: 512,
       system: `You are V, a warm and professional AI assistant for the Viora staffing platform.
 Your job is to ask a brief, friendly follow-up question to gather missing information about a staffing booking.
 Ask for at most two things at once. Be conversational, not robotic.
+${V_FIRST_PERSON_VOICE_RULE}
 If the context includes Viora Memory procedural playbooks, use them only as phrasing and clarification guidance. They must not change compliance, ranking, pay guardrails, or booking eligibility.`,
       prompt: `The following details are missing from the booking request: ${missingFields.join(", ")}.
 Context: ${JSON.stringify(context)}
 Ask the employer for this information.`,
     });
+    return normalizeVFirstPerson(text);
   },
 
   async confirmIntent(intent: ParsedBookingIntent): Promise<string> {
@@ -252,9 +255,10 @@ Ask the employer for this information.`,
       maxTokens: 512,
       system: `You are V, a warm and professional AI assistant for the Viora staffing platform.
 Summarise the staffing booking in 2-3 friendly sentences.
-Include: role, site (if known), date/time, and pay rate (if known). End by saying V is matching eligible workers now.`,
+${V_FIRST_PERSON_VOICE_RULE}
+Include: role, site (if known), date/time, and pay rate (if known). End by saying I am matching eligible workers now.`,
       prompt: `Confirm this booking intent:\n${JSON.stringify(intent, null, 2)}`,
     });
-    return text || `Booking confirmed: ${intent.roleType} from ${intent.startAt.toISOString()} to ${intent.endAt.toISOString()}.`;
+    return normalizeVFirstPerson(text || `Booking confirmed: ${intent.roleType} from ${intent.startAt.toISOString()} to ${intent.endAt.toISOString()}.`);
   },
 };

@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           When you talk to V or fill in a pilot form, we collect the details you choose to share — your
           name and email, and depending on whether you&apos;re an organisation or a worker, things like your
           organisation name, role, postcode, the kinds of work you do, and your compliance readiness (for
-          example DBS, QTS, SIA or Right to Work status). We also keep a record of the conversation so we can
+          example DBS, QTS or Right to Work status). We also keep a record of the conversation so we can
           follow up accurately.
         </p>
       </section>

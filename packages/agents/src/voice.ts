@@ -63,6 +63,10 @@ type VoiceConfig = {
     voiceId?: string;
     modelId: string;
     outputFormat: string;
+    pronunciationDictionary: {
+      id?: string;
+      versionId?: string;
+    };
     settings: ElevenLabsVoiceSettings;
   };
   openai: {
@@ -91,8 +95,26 @@ type ElevenLabsVoiceSettings = {
   useSpeakerBoost: boolean;
 };
 
+type ElevenLabsPronunciationDictionaryLocator = {
+  pronunciation_dictionary_id: string;
+  version_id?: string;
+};
+
+type PreparedSpeechInput = {
+  text: string;
+  openAiInstructions?: string;
+  elevenLabsPronunciationDictionaryLocators?: ElevenLabsPronunciationDictionaryLocator[];
+};
+
 const DEFAULT_VOICE_STYLE =
   "V sounds like a sharp British staffing coordinator in her late 20s: calm, capable, concise, and quietly confident. Use modern neutral UK delivery, natural pauses, subtle downward inflection on firm statements, and extra clarity for dates, shifts, DBS, compliance, bookings, and next steps. Never sound salesy, theatrical, childish, maternal, overly cheerful, or like a generic assistant.";
+
+const VIORA_PRONUNCIATION_PROFILE_VERSION = "viora-brand-v5";
+const VIORA_BRAND_PATTERN = /\bViora\b/gi;
+const VIORA_BRAND_ALIAS = "Veora";
+const VIORA_BRAND_IPA = "ˈviː.ɔː.rə";
+const VIORA_BRAND_OPENAI_INSTRUCTION =
+  "Pronounce the brand name Viora as VEE-OR-uh, with stress on the first syllable. IPA: /ˈviː.ɔː.rə/.";
 
 function getEnvValue(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -140,6 +162,10 @@ function getVoiceConfig(): VoiceConfig {
       voiceId: getEnvValue("ELEVENLABS_VOICE_ID"),
       modelId: getEnvValue("ELEVENLABS_MODEL_ID") ?? "eleven_flash_v2_5",
       outputFormat: getEnvValue("ELEVENLABS_OUTPUT_FORMAT") ?? "mp3_44100_128",
+      pronunciationDictionary: {
+        id: getEnvValue("ELEVENLABS_PRONUNCIATION_DICTIONARY_ID"),
+        versionId: getEnvValue("ELEVENLABS_PRONUNCIATION_DICTIONARY_VERSION_ID"),
+      },
       settings: {
         stability: readNumberEnv("ELEVENLABS_STABILITY", 0.46, 0, 1),
         similarityBoost: readNumberEnv("ELEVENLABS_SIMILARITY_BOOST", 0.75, 0, 1),
@@ -171,10 +197,15 @@ function cacheKeyFor(input: {
   provider: VoiceTtsProvider;
   model: string;
   voiceId: string;
+  purpose: VoicePurpose;
   styleVersion: string;
   format: string;
   voiceSettings?: ElevenLabsVoiceSettings;
   text: string;
+  speechText: string;
+  pronunciationProfileVersion: string;
+  openAiInstructions?: string;
+  elevenLabsPronunciationDictionaryLocators?: ElevenLabsPronunciationDictionaryLocator[];
 }) {
   return createHash("sha256")
     .update(
@@ -182,13 +213,69 @@ function cacheKeyFor(input: {
         provider: input.provider,
         model: input.model,
         voiceId: input.voiceId,
+        purpose: input.purpose,
         styleVersion: input.styleVersion,
         format: input.format,
         voiceSettings: input.voiceSettings,
         text: input.text,
+        speechText: input.speechText,
+        pronunciationProfileVersion: input.pronunciationProfileVersion,
+        openAiInstructions: input.openAiInstructions,
+        elevenLabsPronunciationDictionaryLocators: input.elevenLabsPronunciationDictionaryLocators,
       }),
     )
     .digest("hex");
+}
+
+function replaceVioraBrand(text: string, replacement: string): string {
+  return text.replace(VIORA_BRAND_PATTERN, replacement);
+}
+
+function openAiInstructionsWithBrandPronunciation(style: string): string {
+  return `${style} ${VIORA_BRAND_OPENAI_INSTRUCTION}`;
+}
+
+function elevenLabsPronunciationDictionaryLocators(
+  config: VoiceConfig,
+): ElevenLabsPronunciationDictionaryLocator[] | undefined {
+  const id = config.elevenlabs.pronunciationDictionary.id;
+  if (!id) return undefined;
+  const locator: ElevenLabsPronunciationDictionaryLocator = { pronunciation_dictionary_id: id };
+  const versionId = config.elevenlabs.pronunciationDictionary.versionId;
+  if (versionId) locator.version_id = versionId;
+  return [locator];
+}
+
+function elevenLabsSpeechTextWithBrandPronunciation(config: VoiceConfig, text: string): string {
+  if (config.elevenlabs.modelId === "eleven_v3") {
+    return replaceVioraBrand(text, `"/${VIORA_BRAND_IPA}/"`);
+  }
+  if (config.elevenlabs.modelId === "eleven_flash_v2") {
+    return replaceVioraBrand(text, `<phoneme alphabet="ipa" ph="${VIORA_BRAND_IPA}">Viora</phoneme>`);
+  }
+  return replaceVioraBrand(text, VIORA_BRAND_ALIAS);
+}
+
+function prepareSpeechInput(config: VoiceConfig, text: string): PreparedSpeechInput {
+  if (config.ttsProvider === "openai") {
+    return {
+      text,
+      openAiInstructions: openAiInstructionsWithBrandPronunciation(config.style),
+    };
+  }
+
+  if (config.ttsProvider === "elevenlabs") {
+    const locators = elevenLabsPronunciationDictionaryLocators(config);
+    if (locators) {
+      return {
+        text,
+        elevenLabsPronunciationDictionaryLocators: locators,
+      };
+    }
+    return { text: elevenLabsSpeechTextWithBrandPronunciation(config, text) };
+  }
+
+  return { text };
 }
 
 async function fetchAudio(url: string, init: RequestInit): Promise<Uint8Array> {
@@ -200,33 +287,52 @@ async function fetchAudio(url: string, init: RequestInit): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-async function generateElevenLabsSpeech(config: VoiceConfig, text: string): Promise<Uint8Array> {
+async function generateElevenLabsSpeech(
+  config: VoiceConfig,
+  text: string,
+  pronunciationDictionaryLocators?: ElevenLabsPronunciationDictionaryLocator[],
+): Promise<Uint8Array> {
   if (!config.elevenlabs.apiKey || !config.elevenlabs.voiceId) {
     throw new VoiceProviderError("ElevenLabs TTS is not configured. Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID.");
   }
   const url = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${config.elevenlabs.voiceId}/stream`);
   url.searchParams.set("output_format", config.elevenlabs.outputFormat);
+  const body: {
+    text: string;
+    model_id: string;
+    voice_settings: {
+      stability: number;
+      similarity_boost: number;
+      style: number;
+      speed: number;
+      use_speaker_boost: boolean;
+    };
+    pronunciation_dictionary_locators?: ElevenLabsPronunciationDictionaryLocator[];
+  } = {
+    text,
+    model_id: config.elevenlabs.modelId,
+    voice_settings: {
+      stability: config.elevenlabs.settings.stability,
+      similarity_boost: config.elevenlabs.settings.similarityBoost,
+      style: config.elevenlabs.settings.style,
+      speed: config.elevenlabs.settings.speed,
+      use_speaker_boost: config.elevenlabs.settings.useSpeakerBoost,
+    },
+  };
+  if (pronunciationDictionaryLocators) {
+    body.pronunciation_dictionary_locators = pronunciationDictionaryLocators;
+  }
   return fetchAudio(url.toString(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "xi-api-key": config.elevenlabs.apiKey,
     },
-    body: JSON.stringify({
-      text,
-      model_id: config.elevenlabs.modelId,
-      voice_settings: {
-        stability: config.elevenlabs.settings.stability,
-        similarity_boost: config.elevenlabs.settings.similarityBoost,
-        style: config.elevenlabs.settings.style,
-        speed: config.elevenlabs.settings.speed,
-        use_speaker_boost: config.elevenlabs.settings.useSpeakerBoost,
-      },
-    }),
+    body: JSON.stringify(body),
   });
 }
 
-async function generateOpenAiSpeech(config: VoiceConfig, text: string): Promise<Uint8Array> {
+async function generateOpenAiSpeech(config: VoiceConfig, text: string, instructions: string): Promise<Uint8Array> {
   if (!config.openai.apiKey) {
     throw new VoiceProviderError("OpenAI TTS is not configured. Set OPENAI_API_KEY.");
   }
@@ -240,7 +346,7 @@ async function generateOpenAiSpeech(config: VoiceConfig, text: string): Promise<
       model: config.openai.ttsModel,
       voice: config.openai.ttsVoice,
       input: text,
-      instructions: config.style,
+      instructions,
       response_format: config.ttsFormat,
     }),
   });
@@ -423,14 +529,21 @@ export function createVoiceClient(): VoiceClient {
 
       const model = config.ttsProvider === "elevenlabs" ? config.elevenlabs.modelId : config.openai.ttsModel;
       const voiceId = config.ttsProvider === "elevenlabs" ? (config.elevenlabs.voiceId ?? "") : config.openai.ttsVoice;
+      const purpose = input.purpose ?? "reply";
+      const speech = prepareSpeechInput(config, input.text);
       const cacheKey = cacheKeyFor({
         provider: config.ttsProvider,
         model,
         voiceId,
+        purpose,
         styleVersion: config.styleVersion,
         format: config.ttsFormat,
         voiceSettings: config.ttsProvider === "elevenlabs" ? config.elevenlabs.settings : undefined,
         text: input.text,
+        speechText: speech.text,
+        pronunciationProfileVersion: VIORA_PRONUNCIATION_PROFILE_VERSION,
+        openAiInstructions: speech.openAiInstructions,
+        elevenLabsPronunciationDictionaryLocators: speech.elevenLabsPronunciationDictionaryLocators,
       });
       const cachePath = path.join(config.cacheDir, `${cacheKey}.${config.ttsFormat}`);
 
@@ -450,8 +563,8 @@ export function createVoiceClient(): VoiceClient {
 
       const audio =
         config.ttsProvider === "elevenlabs"
-          ? await generateElevenLabsSpeech(config, input.text)
-          : await generateOpenAiSpeech(config, input.text);
+          ? await generateElevenLabsSpeech(config, speech.text, speech.elevenLabsPronunciationDictionaryLocators)
+          : await generateOpenAiSpeech(config, speech.text, speech.openAiInstructions ?? config.style);
       await mkdir(config.cacheDir, { recursive: true });
       await writeFile(cachePath, audio);
       return {

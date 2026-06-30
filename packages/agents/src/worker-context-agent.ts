@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@viora/database";
 import { createLLMClient } from "./llm.js";
 import type { MemoryAgent, WorkerContextAgent } from "./types.js";
+import { normalizeVFirstPerson, V_FIRST_PERSON_VOICE_RULE } from "./v-copy.js";
 
 export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent): WorkerContextAgent {
   return {
@@ -61,7 +62,7 @@ export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent):
         "This shift matches your profile and location.",
       ]);
       if (offer.fitExplanation !== templateReasoning && !knownTemplates.has(offer.fitExplanation)) {
-        return offer.fitExplanation;
+        return normalizeVFirstPerson(offer.fitExplanation);
       }
 
       const context = {
@@ -92,13 +93,14 @@ export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent):
         const text = await llm.complete({
           maxTokens: 300,
           system:
-            "You are Viora, a friendly staffing platform assistant. Write 2–3 warm sentences explaining to the worker why this shift is a great fit for them. Be specific, encouraging, and concise. Output only the explanation — no preamble.",
+            `You are V, a friendly staffing platform assistant for Viora. Write 2-3 warm sentences explaining to the worker why this shift is a great fit for them. Be specific, encouraging, and concise. ${V_FIRST_PERSON_VOICE_RULE} Output only the explanation - no preamble.`,
           prompt: JSON.stringify(context),
         });
 
         if (text) {
+          const normalized = normalizeVFirstPerson(text);
           await db.offer
-            .update({ where: { id: offerId }, data: { fitExplanation: text } })
+            .update({ where: { id: offerId }, data: { fitExplanation: normalized } })
             .catch(() => {});
           const offerMemory = await memory.getOfferContext(offerId, { audience: "worker" });
           await memory.recordInfluence({
@@ -114,11 +116,11 @@ export function createWorkerContextAgent(db: PrismaClient, memory: MemoryAgent):
             outcome: "explanation_generated",
             note: "Worker-facing explanation may include the worker's own private profile memory.",
           });
-          return text;
+          return normalized;
         }
-        return fallback;
+        return normalizeVFirstPerson(fallback);
       } catch {
-        return fallback;
+        return normalizeVFirstPerson(fallback);
       }
     },
   };

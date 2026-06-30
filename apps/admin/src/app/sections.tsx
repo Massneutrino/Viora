@@ -7,7 +7,7 @@ import { MemoryConsolidation, MemoryEvidence, MemoryReview, type MemoryConsolida
 import { MemoryLab, type MemoryLabState } from "./memory-lab";
 import { DemoPersonas } from "./demo-personas";
 import { SandboxPanel } from "./sandbox-panel";
-import { BreakdownPanel, MiniStat } from "./analytics";
+import { AgentOutcomesPanel, BreakdownPanel, MiniStat } from "./analytics";
 import { LeadActions } from "./pilot-approve";
 import { TimesheetsQueue, type PendingTimesheet } from "./timesheets-queue";
 import { VWorkflows } from "./v-workflows";
@@ -226,7 +226,7 @@ export function OverviewSection({ data }: { data: ConsoleData }) {
         <BreakdownPanel title="Bookings" counts={stats.funnel.bookings} />
         <BreakdownPanel title="Shift outcomes" counts={stats.operations.shifts} />
         <BreakdownPanel title="Compliance documents" counts={stats.workforce.complianceDocs} />
-        <BreakdownPanel title="Agent outcomes · 7d" counts={stats.operations.auditOutcomes7d} />
+        <AgentOutcomesPanel title="Agent outcomes · 7d" counts={stats.operations.auditOutcomes7d} />
       </section>
 
       <div>

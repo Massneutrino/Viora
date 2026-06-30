@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { normalizeVFirstPerson } from "@viora/agents";
 import type { Prisma } from "@viora/database";
 import { haversineKm } from "@viora/domain";
 import { queuePendingApproval } from "../approvals.js";
@@ -380,8 +381,9 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
       const siteLine = [br.site.address, br.site.city, br.site.postcode].filter(Boolean).join(", ");
       replyText = `${roleLabel(br.roleType)} at ${br.site.name}, ${siteLine}. It pays GBP ${currentOffer.payRate}/day on ${offerDateFmt.format(br.startAt)} from ${offerTimeFmt.format(br.startAt)} to ${offerTimeFmt.format(br.endAt)}.`;
     } else if (intent === "answer") {
-      replyText = "You do not have a pending offer right now. I can show new offers when V finds one.";
+      replyText = "You do not have a pending offer right now. I can show new offers when I find one.";
     }
+    replyText = normalizeVFirstPerson(replyText);
 
     await writeAuditEvent(app.db, {
       actorType: "user",
@@ -404,7 +406,7 @@ export const workerRoutes: FastifyPluginAsync = async (app) => {
 
     return reply.send({
       intent,
-      reply: replyText,
+      reply: normalizeVFirstPerson(replyText),
       requiresConfirmation,
       pendingAction,
       actionExecuted,

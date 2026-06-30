@@ -13,6 +13,7 @@
     "lint": "echo \"No lint configured yet\""
   },
   "dependencies": {
+    "@viora/domain": "*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -331,7 +331,7 @@ const employerBookingIntake: WorkflowDefinition = {
       description: "All required booking details are present and matching starts.",
       inputs: { rawInput: "Need a KS2 supply teacher at Greenfield tomorrow, GBP 160." },
       path: ["start", "load-context", "parse", "missing", "persist", "broadcast", "end"],
-      messages: [{ audience: "employer", text: "I have captured the request and V is matching eligible workers now." }],
+      messages: [{ audience: "employer", text: "I have captured the request and I am matching eligible workers now." }],
       decisions: [
         { nodeId: "missing", outcome: "continue", reason: "Required fields are present and within guardrails." },
         { nodeId: "broadcast", outcome: "continue", reason: "Broadcast proceeds through Market Agent guardrails." },
@@ -480,7 +480,7 @@ const offerExplanation: WorkflowDefinition = {
       description: "Worker accepts and booking creation proceeds through compliance and guardrails.",
       inputs: { offerId: "offer-demo" },
       path: ["start", "surface", "memory", "explain", "accept", "end"],
-      messages: [{ audience: "worker", text: "You are booked. V has updated the employer." }],
+      messages: [{ audience: "worker", text: "You are booked. I have updated the employer." }],
       decisions: [{ nodeId: "accept", outcome: "continue", reason: "Booking creation remains guarded." }],
       expectedAuditActions: ["offer.surface", "memory.influence", "booking.create"],
     },

@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PixelSphere, PixelRings, startVoiceCapture, type VoiceCaptureController, type WaveState } from "@viora/ui";
-import { playVSpeech } from "./voice-audio";
+import { PixelSphere, PixelRings, playVSpeech, startVoiceCapture, type VoiceCaptureController, type WaveState } from "@viora/ui";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:6200";
 
@@ -17,9 +16,9 @@ const SUGGESTIONS = [
 const STATE_LABEL: Record<WaveState, string> = {
   rest: "Tap to talk to V",
   listening: "Listening… tap to stop",
-  processing: "V is thinking…",
-  speaking: "V is responding",
-  confirmed: "V is responding",
+  processing: "I'm thinking…",
+  speaking: "I'm responding",
+  confirmed: "I'm responding",
   risk: "Action needed",
 };
 
@@ -36,12 +35,12 @@ export function VConsole() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
-  const speak = useCallback((text: string) => {
-    void playVSpeech(text);
+  const speak = useCallback((text: string, onEnd?: () => void) => {
+    void playVSpeech(text, { apiUrl: API_URL, purpose: "admin", onEnd });
   }, []);
 
   const submit = useCallback(
-    async (text: string, fromVoice: boolean) => {
+    async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || busy) return;
       setInput("");
@@ -58,17 +57,18 @@ export function VConsole() {
         const answer =
           res.ok && data && typeof data.answer === "string"
             ? data.answer
-            : "V could not answer that — check the API connection on :6200.";
+            : "I could not answer that — check the API connection on :6200.";
         setWave("speaking");
         setMessages((prev) => [...prev, { role: "v", content: answer }]);
-        if (fromVoice) speak(answer);
-        setTimeout(() => setWave((w) => (w === "speaking" ? "rest" : w)), 1400);
+        speak(answer, () => setWave((w) => (w === "speaking" ? "rest" : w)));
       } catch {
+        const answer = "I am unreachable — is the API running on :6200?";
+        setWave("speaking");
         setMessages((prev) => [
           ...prev,
-          { role: "v", content: "V is unreachable — is the API running on :6200?" },
+          { role: "v", content: answer },
         ]);
-        setWave("rest");
+        speak(answer, () => setWave("rest"));
       } finally {
         setBusy(false);
       }
@@ -89,7 +89,7 @@ export function VConsole() {
         recognitionRef.current = null;
         setWave((w) => (w === "listening" ? "rest" : w));
       },
-      onTranscript: ({ text }) => submit(text, true),
+      onTranscript: ({ text }) => submit(text),
       onError: () => {
         setListening(false);
         setWave("rest");
@@ -167,7 +167,7 @@ export function VConsole() {
                 <button
                   key={s}
                   type="button"
-                  onClick={() => submit(s, false)}
+                  onClick={() => submit(s)}
                   disabled={busy}
                   style={{
                     fontSize: "0.75rem",
@@ -207,7 +207,7 @@ export function VConsole() {
         )}
         {busy && (
           <div style={{ alignSelf: "flex-start", color: "var(--muted)", fontSize: "0.875rem" }}>
-            V is thinking…
+            I'm thinking…
           </div>
         )}
       </div>
@@ -216,7 +216,7 @@ export function VConsole() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          submit(input, false);
+          submit(input);
         }}
         style={{
           display: "flex",

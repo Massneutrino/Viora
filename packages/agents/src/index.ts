@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./llm.js";
 export * from "./voice.js";
+export * from "./v-copy.js";
 export * from "./stubs.js";
 export * from "./v-agent.js";
 export * from "./trust-compliance-agent.js";
