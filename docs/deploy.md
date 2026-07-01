@@ -140,7 +140,7 @@ Deploy logs should show `[Viora API] LLM: google / gemini-...`.
 | API won't start | Missing `GOOGLE_API_KEY` when `AI_PROVIDER=google` |
 | `/health/ready` DB disconnected | Check `DATABASE_URL` reference; check deploy logs for migrate errors at start |
 | Build fails P1001 `postgres.railway.internal` | `prisma migrate deploy` must be in **start**, not build — see `railway.toml` |
-| `MODULE_NOT_FOUND` `apps/api/dist/index.js` | API didn't compile — check **build** logs for `@viora/api:build` and `test -f`; Root Directory must be `/` (repo root) |
+| `MODULE_NOT_FOUND` `apps/api/dist/index.js` | API `tsc` had `noEmit: true` via shared tsconfig — ensure `apps/api/tsconfig.json` sets `noEmit: false`; build logs should pass `test -f` |
 | Generic browser voice | Check `/v1/voice/status`; fix ElevenLabs vars |
 | Site can't reach API | `NEXT_PUBLIC_API_URL` on Vercel + redeploy |
 | Voice works for you only on Vercel | Site still pointing at `localhost:6200` — set `NEXT_PUBLIC_API_URL` |

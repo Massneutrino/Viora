@@ -1,6 +1,7 @@
 {
   "extends": "@viora/tsconfig/node.json",
   "compilerOptions": {
+    "noEmit": false,
     "outDir": "dist",
     "rootDir": "src"
   },
