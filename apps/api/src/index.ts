@@ -37,7 +37,7 @@ import { voiceRoutes } from "./routes/voice.js";
 import { vWorkflowRoutes } from "./routes/v-workflows.js";
 import { scheduleRoutes } from "./routes/schedule.js";
 
-const port = Number(process.env.API_PORT ?? 6200);
+const port = Number(process.env.PORT ?? process.env.API_PORT ?? 6200);
 
 function checkEnv() {
   const provider = process.env.AI_PROVIDER ?? "anthropic";
