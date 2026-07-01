@@ -27,6 +27,7 @@ See [`TODO_PHASE0.md`](./TODO_PHASE0.md) for granular engineering tasks.
 - `npm run test:phase0` — sandbox scenarios, L1 approvals queue, schedule APIs, `booking.monitor`
 - `npm run test:memory && npm run test:memory:evals`
 - `npm run benchmark:intake -- --limit 10`
+- Railway API deploy uses repo-root config-as-code in `railway.toml`, including a forced API build and `apps/api/dist/index.js` verification before deploy.
 
 Schedule **UI** tabs ship in Phase 0 — worker `Schedule` tab (week strip + agenda, mark-unavailable, weekly availability) and employer Bookings `List | Schedule` coverage view, built on shared `@viora/ui` widgets. Google/Outlook/iCal calendar sync remains intentionally deferred to Phase 1 (external calendar OAuth).
 
