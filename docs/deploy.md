@@ -40,20 +40,20 @@ Each other frontend (`apps/web`, `apps/admin`, `apps/worker-web`) gets its own V
 ## 2. Railway — API service
 
 1. **+ New** → **GitHub Repo** → same Viora repo (second service in the project).
-2. **Settings** → leave **Root Directory** empty (repo root).
-3. Build/start commands come from [`railway.toml`](../railway.toml) after commit + push. Manual fallback:
+2. **Settings → Source → Root Directory:** `/` or empty (repo root). Required for npm workspaces.
+3. Build/start commands come from [`railway.toml`](../railway.toml) (config-as-code). Clicking **Custom Command** in Deploy settings opens this file on GitHub — edit locally, commit, push; no dashboard paste needed. Manual fallback:
 
    **Build:**
    ```bash
-   npm install && cd packages/database && npx prisma generate && cd ../.. && npx turbo run build --filter=@viora/api
+   npm install && cd packages/database && npx prisma generate && cd ../.. && npx turbo run build --filter=@viora/api --force && test -f apps/api/dist/index.js
    ```
 
    **Start:**
    ```bash
-   cd packages/database && npx prisma migrate deploy && cd ../.. && node apps/api/dist/index.js
+   cd packages/database && npx prisma migrate deploy && cd ../.. && npm run start --workspace @viora/api
    ```
 
-   Migrations run at **start**, not build — Railway's build container cannot reach `postgres.railway.internal` (P1001).
+   Migrations run at **start**, not build — Railway's build container cannot reach `postgres.railway.internal` (P1001). The build step verifies `apps/api/dist/index.js` exists before deploy.
 
 4. **Variables** — use [`.env.railway.example`](../.env.railway.example). Minimum for full V voice (Google brain + Gemini STT + ElevenLabs TTS):
 
@@ -140,6 +140,7 @@ Deploy logs should show `[Viora API] LLM: google / gemini-...`.
 | API won't start | Missing `GOOGLE_API_KEY` when `AI_PROVIDER=google` |
 | `/health/ready` DB disconnected | Check `DATABASE_URL` reference; check deploy logs for migrate errors at start |
 | Build fails P1001 `postgres.railway.internal` | `prisma migrate deploy` must be in **start**, not build — see `railway.toml` |
+| `MODULE_NOT_FOUND` `apps/api/dist/index.js` | API didn't compile — check **build** logs for `@viora/api:build` and `test -f`; Root Directory must be `/` (repo root) |
 | Generic browser voice | Check `/v1/voice/status`; fix ElevenLabs vars |
 | Site can't reach API | `NEXT_PUBLIC_API_URL` on Vercel + redeploy |
 | Voice works for you only on Vercel | Site still pointing at `localhost:6200` — set `NEXT_PUBLIC_API_URL` |

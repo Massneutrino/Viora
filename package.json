@@ -31,7 +31,8 @@
     "db:generate": "npm run generate --workspace @viora/database",
     "db:migrate": "npm run migrate --workspace @viora/database",
     "db:seed": "npm run seed --workspace @viora/database",
-    "db:studio": "npm run studio --workspace @viora/database"
+    "db:studio": "npm run studio --workspace @viora/database",
+    "start:api:production": "cd packages/database && npm run migrate:deploy && cd ../.. && npm run start --workspace @viora/api"
   },
   "devDependencies": {
     "turbo": "^2.5.4",
