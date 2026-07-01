@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@viora/database";
 import { createVoiceClient, getActiveVoiceConfig, VoiceProviderError } from "@viora/agents";
 import { writeAuditEvent } from "../audit.js";
+import { readRateLimitMax, registerRouteRateLimit } from "../rate-limit.js";
 
 const speechSchema = z.object({
   text: z.string().trim().min(1).max(2000),
@@ -54,7 +55,12 @@ export const voiceRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/status", async () => getActiveVoiceConfig());
 
-  app.post("/speech", async (request, reply) => {
+  const speechMax = readRateLimitMax("RATE_LIMIT_VOICE_SPEECH_MAX", 60);
+  const transcribeMax = readRateLimitMax("RATE_LIMIT_VOICE_TRANSCRIBE_MAX", 60);
+
+  await app.register(async (speechScope) => {
+    await registerRouteRateLimit(speechScope, { max: speechMax, timeWindowMs: 60_000 });
+    speechScope.post("/speech", async (request, reply) => {
     const body = speechSchema.parse(request.body);
     const voice = createVoiceClient();
 
@@ -99,9 +105,12 @@ export const voiceRoutes: FastifyPluginAsync = async (app) => {
       request.log.warn({ err }, "voice speech generation failed");
       return reply.code(response.statusCode).send({ error: response.message });
     }
+    });
   });
 
-  app.post("/transcribe", async (request, reply) => {
+  await app.register(async (transcribeScope) => {
+    await registerRouteRateLimit(transcribeScope, { max: transcribeMax, timeWindowMs: 60_000 });
+    transcribeScope.post("/transcribe", async (request, reply) => {
     const contentType = request.headers["content-type"]?.split(";")[0]?.trim() ?? "application/octet-stream";
     const language = typeof request.headers["x-viora-language"] === "string" ? request.headers["x-viora-language"] : "en";
     const filename =
@@ -151,5 +160,6 @@ export const voiceRoutes: FastifyPluginAsync = async (app) => {
       request.log.warn({ err }, "voice transcription failed");
       return reply.code(response.statusCode).send({ error: response.message });
     }
+    });
   });
 };

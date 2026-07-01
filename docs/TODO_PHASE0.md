@@ -6,6 +6,13 @@ Legend: ✅ done · 🔜 in progress · 🔲 todo
 
 **Last reviewed:** 2026-06-30
 
+**Marketing go-live quick wins (2026-06-30):**
+- Lead form consent aligned with V chat — explicit checkbox on quick-form modal and `/register`; `POST /v1/pilot/leads` requires `consent: true` (`apps/site/src/app/lead-form.tsx`, `apps/api/src/routes/pilot.ts`).
+- Open Graph preview image — `apps/site/src/app/opengraph-image.tsx` (generated 1200×630 card).
+- Production env documented — `NEXT_PUBLIC_SITE_URL`, `WEB_URL`, `WORKER_WEB_URL`, `TRUST_PROXY`, `RATE_LIMIT_*` in `.env.example` and `DEVELOPMENT.md`.
+- Public-route rate limits — `@fastify/rate-limit` on pilot chat/leads and voice speech/transcribe POST routes only (production, per-IP; `/voice/status` excluded); UX-safe defaults 30/10/60/60 per minute (`apps/api/src/rate-limit.ts`).
+- Chat 429 UX — throttled responses show retry copy without auto-opening the quick form (`apps/site/src/app/v-conversation.tsx`).
+
 **Phase 0 close-out:** Engineering close-out is complete for the core loop, guardrails, monitoring, schedule APIs, and the worker/employer schedule **UI** (worker `Schedule` tab and employer Bookings `List | Schedule` view). External Google/Outlook/iCal sync remains Phase 1.
 
 **Recent fixes (review follow-up):**

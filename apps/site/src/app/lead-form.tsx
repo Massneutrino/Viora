@@ -50,21 +50,28 @@ export function LeadForm({
   header?: ReactNode;
 }) {
   const [type, setType] = useState<LeadType>(initialType);
+  const [consent, setConsent] = useState(false);
   const [state, setState] = useState<SubmitState>("idle");
   const isEmployer = type === "employer";
 
   useEffect(() => {
     setType(initialType);
+    setConsent(false);
     setState("idle");
   }, [initialType]);
 
   function selectType(next: LeadType) {
     setType(next);
+    setConsent(false);
     setState("idle");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!consent) {
+      setState("error");
+      return;
+    }
     const target = event.currentTarget;
     const form = new FormData(target);
     const payload = isEmployer
@@ -75,6 +82,7 @@ export function LeadForm({
           roleTitle: field(form, "roleTitle"),
           email: field(form, "email"),
           phone: field(form, "phone"),
+          consent: true as const,
         }
       : {
           leadType: type,
@@ -84,6 +92,7 @@ export function LeadForm({
           postcode: field(form, "postcode"),
           workerRoleTypes: splitRoles(field(form, "workerRoleTypes")),
           complianceReadiness: field(form, "complianceReadiness"),
+          consent: true as const,
         };
 
     setState("sending");
@@ -95,6 +104,7 @@ export function LeadForm({
       });
       if (!res.ok) throw new Error("Lead submit failed");
       target.reset();
+      setConsent(false);
       setState("sent");
     } catch {
       setState("error");
@@ -193,13 +203,22 @@ export function LeadForm({
           <input name="phone" autoComplete="tel" />
         </label>
 
-        <p className="form-consent">
-          By joining you agree to be contacted about Viora. See our{" "}
-          <a href="/privacy" target="_blank" rel="noreferrer">
-            privacy notice
-          </a>
-          .
-        </p>
+        <label className="vc-consent">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => {
+              setConsent(e.target.checked);
+              if (state === "error") setState("idle");
+            }}
+          />
+          <span>
+            I agree to be contacted about Viora.{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer">
+              Privacy
+            </a>
+          </span>
+        </label>
 
         <button type="submit" className="qf-submit" disabled={state === "sending"}>
           {state === "sending" ? "Joining..." : "Join the waitlist"}
@@ -207,8 +226,17 @@ export function LeadForm({
         <p className="form-trust">Pilot access — no spam, unsubscribe anytime.</p>
         {state === "error" && (
           <p className="submit-note error">
-            Couldn&apos;t send that — try again, or email{" "}
-            <a href="mailto:hello@viora.ai">hello@viora.ai</a>.
+            {consent ? (
+              <>
+                Couldn&apos;t send that — try again, or email{" "}
+                <a href="mailto:hello@viora.ai">hello@viora.ai</a>.
+              </>
+            ) : (
+              <>
+                Tick consent above, then I can add you to the waitlist. Or email{" "}
+                <a href="mailto:hello@viora.ai">hello@viora.ai</a>.
+              </>
+            )}
           </p>
         )}
       </form>

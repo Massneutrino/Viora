@@ -423,6 +423,21 @@ export const VConversation = forwardRef<
             consent: opts?.consent ?? false,
           }),
         });
+
+        if (res.status === 429) {
+          const rateData = (await res.json().catch(() => null)) as { retryAfterSeconds?: number } | null;
+          const seconds = rateData?.retryAfterSeconds;
+          const throttled =
+            seconds && seconds > 1
+              ? `I'm getting a lot of requests right now — try again in about ${seconds} seconds.`
+              : "I'm getting a lot of requests right now — give me a moment and try again.";
+          setMessages((prev) => [...prev, { role: "v", content: throttled }]);
+          rollCaption(throttled, "text");
+          setEmailState(opts?.contactEmail ? "error" : "idle");
+          setWave("rest");
+          return;
+        }
+
         const data = (await res.json().catch(() => null)) as ChatResponse | null;
         if (!res.ok || !data) throw new Error("bad response");
 

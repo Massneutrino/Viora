@@ -56,7 +56,10 @@ const llm = getActiveLlmConfig();
 console.log(`[Viora API] LLM: ${llm.provider} / ${llm.model}`);
 
 export async function buildServer() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({
+    logger: true,
+    trustProxy: process.env.TRUST_PROXY === "1",
+  });
 
   await app.register(cors, { origin: true });
 

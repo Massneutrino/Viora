@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@viora/database";
 import { createLLMClient, normalizeVFirstPerson, V_FIRST_PERSON_VOICE_RULE } from "@viora/agents";
 import { writeAuditEvent } from "../audit.js";
+import { readRateLimitMax, registerRouteRateLimit } from "../rate-limit.js";
 
 const pilotLeadSchema = z
   .object({
@@ -16,6 +17,7 @@ const pilotLeadSchema = z
     workerRoleTypes: z.array(z.string().trim().min(1).max(80)).max(12).optional(),
     complianceReadiness: z.string().trim().max(120).optional(),
     notes: z.string().trim().max(2000).optional(),
+    consent: z.literal(true, { errorMap: () => ({ message: "Consent is required." }) }),
   })
   .superRefine((value, ctx) => {
     if (value.leadType === "employer" && !value.organisationName) {
@@ -286,6 +288,7 @@ function toLeadInput(
       : undefined,
     complianceReadiness: cleanStr(f.complianceReadiness),
     notes,
+    consent: true as const,
   };
 
   const parsed = pilotLeadSchema.safeParse(candidate);
@@ -324,14 +327,22 @@ function confirmationReply(leadType: "employer" | "worker", name?: string, org?:
 }
 
 export const pilotRoutes: FastifyPluginAsync = async (app) => {
-  app.post("/leads", async (request, reply) => {
-    const body = pilotLeadSchema.parse(request.body);
-    const lead = await app.db.$transaction((tx) => createPilotLead(tx, body, "form"));
-    return reply.code(201).send({ lead });
+  const leadsMax = readRateLimitMax("RATE_LIMIT_PILOT_LEADS_MAX", 10);
+  const chatMax = readRateLimitMax("RATE_LIMIT_PILOT_CHAT_MAX", 30);
+
+  await app.register(async (leadsScope) => {
+    await registerRouteRateLimit(leadsScope, { max: leadsMax, timeWindowMs: 60_000 });
+    leadsScope.post("/leads", async (request, reply) => {
+      const body = pilotLeadSchema.parse(request.body);
+      const lead = await app.db.$transaction((tx) => createPilotLead(tx, body, "form"));
+      return reply.code(201).send({ lead });
+    });
   });
 
   /** POST /v1/pilot/chat - V-driven conversational lead capture for the marketing site. */
-  app.post("/chat", async (request, reply) => {
+  await app.register(async (chatScope) => {
+    await registerRouteRateLimit(chatScope, { max: chatMax, timeWindowMs: 60_000 });
+    chatScope.post("/chat", async (request, reply) => {
     const body = chatSchema.parse(request.body);
 
     let turn: VChatTurn;
@@ -401,6 +412,7 @@ export const pilotRoutes: FastifyPluginAsync = async (app) => {
       captured,
       leadId,
       degraded: false,
+    });
     });
   });
 };

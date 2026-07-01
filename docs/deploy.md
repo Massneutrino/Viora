@@ -18,6 +18,8 @@ Each other frontend (`apps/web`, `apps/admin`, `apps/worker-web`) gets its own V
 | `DATABASE_URL` | Postgres reference | — |
 | `GOOGLE_API_KEY`, `ELEVENLABS_API_KEY`, all `AI_*` / `VOICE_*` | server secrets | never |
 | `JWT_SECRET`, `NODE_ENV`, `API_PORT` | yes | — |
+| `TRUST_PROXY` | `1` (required behind Railway proxy for per-IP rate limits) | — |
+| `RATE_LIMIT_*` | optional overrides (defaults in `.env.example`) | — |
 | `NEXT_PUBLIC_API_URL` | — | Railway API URL |
 | `NEXT_PUBLIC_SITE_URL` | — | Vercel site URL |
 
@@ -43,13 +45,15 @@ Each other frontend (`apps/web`, `apps/admin`, `apps/worker-web`) gets its own V
 
    **Build:**
    ```bash
-   npm install && cd packages/database && npx prisma generate && cd ../.. && npx turbo run build --filter=@viora/api && cd packages/database && npx prisma migrate deploy
+   npm install && cd packages/database && npx prisma generate && cd ../.. && npx turbo run build --filter=@viora/api
    ```
 
    **Start:**
    ```bash
-   node apps/api/dist/index.js
+   cd packages/database && npx prisma migrate deploy && cd ../.. && node apps/api/dist/index.js
    ```
+
+   Migrations run at **start**, not build — Railway's build container cannot reach `postgres.railway.internal` (P1001).
 
 4. **Variables** — use [`.env.railway.example`](../.env.railway.example). Minimum for full V voice (Google brain + Gemini STT + ElevenLabs TTS):
 
@@ -59,6 +63,7 @@ Each other frontend (`apps/web`, `apps/admin`, `apps/worker-web`) gets its own V
    | `API_PORT` | `${{PORT}}` |
    | `JWT_SECRET` | New long random string (not the local dev placeholder) |
    | `NODE_ENV` | `production` |
+   | `TRUST_PROXY` | `1` |
    | `AI_PROVIDER` | `google` |
    | `GOOGLE_API_KEY` | Your Google / Gemini API key |
    | `AI_MODEL_FAST` | `gemini-2.5-flash` |
@@ -133,7 +138,8 @@ Deploy logs should show `[Viora API] LLM: google / gemini-...`.
 | Vercel shows admin/employer app | Root Directory must be `apps/site` |
 | Build can't find `@viora/ui` | Enable include-outside-root on Vercel |
 | API won't start | Missing `GOOGLE_API_KEY` when `AI_PROVIDER=google` |
-| `/health/ready` DB disconnected | Check `DATABASE_URL` reference; confirm `prisma migrate deploy` in build |
+| `/health/ready` DB disconnected | Check `DATABASE_URL` reference; check deploy logs for migrate errors at start |
+| Build fails P1001 `postgres.railway.internal` | `prisma migrate deploy` must be in **start**, not build — see `railway.toml` |
 | Generic browser voice | Check `/v1/voice/status`; fix ElevenLabs vars |
 | Site can't reach API | `NEXT_PUBLIC_API_URL` on Vercel + redeploy |
 | Voice works for you only on Vercel | Site still pointing at `localhost:6200` — set `NEXT_PUBLIC_API_URL` |
